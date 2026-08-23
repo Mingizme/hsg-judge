@@ -122,13 +122,14 @@ export default function TeacherPortalPage() {
           type: 'success',
           text: `Đã quét và nạp thành công: ${data.data?.successful || 1} bài tập từ thư mục Data/!`,
         });
+        await fetchProblems();
       } else {
         throw new Error(data.message || 'Quét thư mục thất bại');
       }
-    } catch {
+    } catch (err: any) {
       setUploadMessage({
-        type: 'success',
-        text: 'Đã đồng bộ thành công cấu trúc bài tập STRNUM (24 Tests, PDF, Lời giải C++)!',
+        type: 'error',
+        text: err.message || 'Không thể kết nối đến máy chủ để quét thư mục Data.',
       });
     } finally {
       setIsScanning(false);
@@ -152,21 +153,35 @@ export default function TeacherPortalPage() {
         body: formData,
       });
       const data = await res.json();
-      if (res.ok) {
-        setUploadMessage({
-          type: 'success',
-          text: `Đã giải nén & nạp thành công gói bài tập "${file.name}"!`,
-        });
+      if (res.ok && data.data?.results) {
+        const results = data.data.results;
+        const successItem = results.find((r: any) => r.success);
+        const failedItem = results.find((r: any) => !r.success);
+
+        if (successItem) {
+          setUploadMessage({
+            type: 'success',
+            text: `🎉 Nạp thành công bài "${successItem.problemCode}" (${successItem.details?.testCasesCount || 0} Testcases, ${successItem.details?.pdfUploaded ? 'Đề PDF, ' : ''}Lời giải C++)!`,
+          });
+          await fetchProblems();
+        } else if (failedItem) {
+          setUploadMessage({
+            type: 'error',
+            text: `❌ ${failedItem.message}`,
+          });
+        }
       } else {
         throw new Error(data.message || 'Lỗi nạp file ZIP');
       }
-    } catch {
+    } catch (err: any) {
       setUploadMessage({
-        type: 'success',
-        text: `Đã giải nén "${file.name}": Tự động trích xuất Đề bài PDF, Bộ Testcases và Lời giải mẫu.`,
+        type: 'error',
+        text: err.message || 'Lỗi tải lên file ZIP. Vui lòng kiểm tra lại kết nối mạng.',
       });
     } finally {
       setIsUploading(false);
+      // Reset input value so same file can be re-selected if needed
+      e.target.value = '';
     }
   };
 

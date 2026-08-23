@@ -1,6 +1,7 @@
 // ============================================
 // File Parser Utilities
 // Xử lý cấu trúc thư mục Data/ và phân tích code
+// Hỗ trợ đa nền tảng (Windows/Linux Case-Insensitive)
 // ============================================
 
 import * as fs from 'fs';
@@ -32,18 +33,26 @@ export interface ParsedProblem {
   ioFileName: string | null;           // Tên file I/O (không có .inp/.out)
 }
 
+// ── Helper: Tìm thư mục con không phân biệt hoa thường ───────
+
+export function findSubdirectory(parentDir: string, candidateNames: string[]): string | null {
+  if (!fs.existsSync(parentDir)) return null;
+  const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+  for (const name of candidateNames) {
+    const found = entries.find(
+      (e) => e.isDirectory() && e.name.toLowerCase() === name.toLowerCase()
+    );
+    if (found) return path.join(parentDir, found.name);
+  }
+  return null;
+}
+
 // ── Detect I/O Type ───────────────────────────
 
-/**
- * Phân tích source code C++ để phát hiện loại I/O:
- * - Nếu có `freopen` → FILE I/O, trích xuất tên file
- * - Nếu không → STANDARD I/O (cin/cout)
- */
 export function detectIOType(sourceCode: string): {
   ioType: 'STANDARD' | 'FILE';
   ioFileName: string | null;
 } {
-  // Regex bắt freopen("filename.inp", "r", stdin)
   const freopenMatch = sourceCode.match(
     /freopen\s*\(\s*"([^"]+)\.inp"\s*,\s*"r"\s*,\s*stdin\s*\)/i,
   );
@@ -51,7 +60,7 @@ export function detectIOType(sourceCode: string): {
   if (freopenMatch) {
     return {
       ioType: 'FILE',
-      ioFileName: freopenMatch[1], // "strnum" (không có .inp)
+      ioFileName: freopenMatch[1],
     };
   }
 
@@ -60,61 +69,55 @@ export function detectIOType(sourceCode: string): {
 
 // ── Parse Test Folders ────────────────────────
 
-/**
- * Đọc tất cả thư mục Test01..TestN, sắp xếp theo số thứ tự,
- * trả về danh sách cặp input/output.
- *
- * Hỗ trợ cả UPPER và lowercase filename:
- * - STRNUM.INP / STRNUM.OUT (chuẩn bài tập HSG)
- * - strnum.inp / strnum.out
- * - *.INP / *.OUT (bất kỳ tên nào, miễn đúng extension)
- */
-export function parseTestFolders(testDir: string): ParsedTestCase[] {
-  if (!fs.existsSync(testDir)) {
+export function parseTestFolders(testDir: string | null): ParsedTestCase[] {
+  if (!testDir || !fs.existsSync(testDir)) {
     return [];
   }
 
-  const testFolders = fs
-    .readdirSync(testDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && /^Test\d+$/i.test(d.name))
-    .sort((a, b) => {
-      const numA = parseInt(a.name.replace(/^Test/i, ''), 10);
-      const numB = parseInt(b.name.replace(/^Test/i, ''), 10);
-      return numA - numB;
-    });
+  const entries = fs.readdirSync(testDir, { withFileTypes: true });
+
+  // Lấy tất cả các thư mục có chứa số thứ tự (Test01, test1, 01, 1...)
+  const testFolders = entries
+    .filter((d) => d.isDirectory() && !d.name.startsWith('__MACOSX') && !d.name.startsWith('.'))
+    .map((d) => {
+      const match = d.name.match(/\d+/);
+      const testNumber = match ? parseInt(match[0], 10) : 999;
+      return { dir: d, testNumber };
+    })
+    .sort((a, b) => a.testNumber - b.testNumber);
 
   const results: ParsedTestCase[] = [];
 
-  for (const folder of testFolders) {
-    const folderPath = path.join(testDir, folder.name);
-    const files = fs.readdirSync(folderPath);
+  for (const { dir, testNumber } of testFolders) {
+    const folderPath = path.join(testDir, dir.name);
+    const files = fs.readdirSync(folderPath).filter((f) => !f.startsWith('.') && !f.startsWith('__'));
 
-    // Tìm file .INP và .OUT (case-insensitive)
-    const inpFile = files.find((f) => /\.inp$/i.test(f));
-    const outFile = files.find((f) => /\.out$/i.test(f));
+    // Tìm file Input và Output (.inp/.out hoặc .in/.out hoặc .txt)
+    const inpFile = files.find((f) => /\.(inp|in|txt)$/i.test(f) && !/out|ans/i.test(f));
+    const outFile = files.find((f) => /\.(out|ans|txt)$/i.test(f) && !/inp|in$/i.test(f) && f !== inpFile);
 
     if (!inpFile || !outFile) {
-      console.warn(
-        `  ⚠️ Skipping ${folder.name}: missing .INP or .OUT file`,
-      );
+      console.warn(`  ⚠️ Skipping ${dir.name}: missing input or output file`);
       continue;
     }
 
-    const inputData = normalizeLineEndings(
-      fs.readFileSync(path.join(folderPath, inpFile), 'utf-8'),
-    );
-    const outputData = normalizeLineEndings(
-      fs.readFileSync(path.join(folderPath, outFile), 'utf-8'),
-    );
+    try {
+      const inputData = normalizeLineEndings(
+        fs.readFileSync(path.join(folderPath, inpFile), 'utf-8'),
+      );
+      const outputData = normalizeLineEndings(
+        fs.readFileSync(path.join(folderPath, outFile), 'utf-8'),
+      );
 
-    const testNumber = parseInt(folder.name.replace(/^Test/i, ''), 10);
-
-    results.push({
-      testNumber,
-      inputData,
-      outputData,
-      folderName: folder.name,
-    });
+      results.push({
+        testNumber: results.length + 1,
+        inputData,
+        outputData,
+        folderName: dir.name,
+      });
+    } catch (readErr) {
+      console.warn(`  ⚠️ Error reading test files in ${dir.name}:`, readErr);
+    }
   }
 
   return results;
@@ -122,22 +125,17 @@ export function parseTestFolders(testDir: string): ParsedTestCase[] {
 
 // ── Parse Solution Codes ──────────────────────
 
-/**
- * Đọc tất cả file .cpp trong thư mục Doc/
- * File cùng tên với mã bài → isPrimary = true
- * File khác → label = tên file (không extension)
- */
 export function parseSolutionCodes(
-  docDir: string,
+  docDir: string | null,
   problemCode: string,
 ): ParsedSolutionCode[] {
-  if (!fs.existsSync(docDir)) {
+  if (!docDir || !fs.existsSync(docDir)) {
     return [];
   }
 
   const cppFiles = fs
     .readdirSync(docDir)
-    .filter((f) => /\.cpp$/i.test(f));
+    .filter((f) => /\.cpp$/i.test(f) && !f.startsWith('.') && !f.startsWith('__'));
 
   return cppFiles.map((fileName) => {
     const sourceCode = fs.readFileSync(
@@ -146,14 +144,15 @@ export function parseSolutionCodes(
     );
 
     const baseName = path.basename(fileName, '.cpp').toLowerCase();
-    const isPrimary = baseName === problemCode.toLowerCase();
+    const isPrimary =
+      baseName === problemCode.toLowerCase() ||
+      baseName === 'solution' ||
+      baseName === 'main';
 
-    // Tạo label thân thiện
     let label: string;
     if (isPrimary) {
       label = 'Lời giải chính';
     } else {
-      // "strnum_stack" → "Stack"
       const suffix = baseName
         .replace(problemCode.toLowerCase(), '')
         .replace(/^[_-]/, '');
@@ -168,18 +167,15 @@ export function parseSolutionCodes(
 
 // ── Find Document Files ───────────────────────
 
-/**
- * Tìm file PDF và DOCX trong thư mục Doc/
- */
-export function findDocumentFiles(docDir: string): {
+export function findDocumentFiles(docDir: string | null): {
   pdfPath: string | null;
   docxPath: string | null;
 } {
-  if (!fs.existsSync(docDir)) {
+  if (!docDir || !fs.existsSync(docDir)) {
     return { pdfPath: null, docxPath: null };
   }
 
-  const files = fs.readdirSync(docDir);
+  const files = fs.readdirSync(docDir).filter((f) => !f.startsWith('.') && !f.startsWith('__'));
   const pdfFile = files.find((f) => /\.pdf$/i.test(f));
   const docxFile = files.find((f) => /\.docx$/i.test(f));
 
@@ -191,14 +187,13 @@ export function findDocumentFiles(docDir: string): {
 
 // ── Parse Full Problem Directory ──────────────
 
-/**
- * Phân tích toàn bộ một thư mục bài tập:
- * Data/STRNUM/ → ParsedProblem
- */
-export function parseProblemDirectory(problemDir: string): ParsedProblem {
-  const code = path.basename(problemDir).toUpperCase();
-  const docDir = path.join(problemDir, 'Doc');
-  const testDir = path.join(problemDir, 'Test');
+export function parseProblemDirectory(
+  problemDir: string,
+  overrideCode?: string,
+): ParsedProblem {
+  const code = (overrideCode || path.basename(problemDir)).toUpperCase();
+  const docDir = findSubdirectory(problemDir, ['Doc', 'doc', 'docs', 'Document', 'Documents']);
+  const testDir = findSubdirectory(problemDir, ['Test', 'test', 'tests', 'Tests']);
 
   // 1. Parse documents (PDF, DOCX)
   const { pdfPath, docxPath } = findDocumentFiles(docDir);
@@ -219,7 +214,6 @@ export function parseProblemDirectory(problemDir: string): ParsedProblem {
     ioType = detected.ioType;
     ioFileName = detected.ioFileName;
   } else if (solutionCodes.length > 0) {
-    // Fallback: dùng code đầu tiên
     const detected = detectIOType(solutionCodes[0].sourceCode);
     ioType = detected.ioType;
     ioFileName = detected.ioFileName;
@@ -238,10 +232,6 @@ export function parseProblemDirectory(problemDir: string): ParsedProblem {
 
 // ── Scan Data Directory ───────────────────────
 
-/**
- * Scan thư mục Data/ gốc, trả về danh sách đường dẫn
- * tới các thư mục bài tập con.
- */
 export function scanDataDirectory(dataDir: string): string[] {
   if (!fs.existsSync(dataDir)) {
     throw new Error(`Data directory not found: ${dataDir}`);
@@ -249,12 +239,11 @@ export function scanDataDirectory(dataDir: string): string[] {
 
   return fs
     .readdirSync(dataDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
+    .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !d.name.startsWith('__'))
     .filter((d) => {
-      // Phải có ít nhất thư mục Doc/ hoặc Test/
       const subDir = path.join(dataDir, d.name);
-      const hasDoc = fs.existsSync(path.join(subDir, 'Doc'));
-      const hasTest = fs.existsSync(path.join(subDir, 'Test'));
+      const hasDoc = Boolean(findSubdirectory(subDir, ['Doc', 'doc']));
+      const hasTest = Boolean(findSubdirectory(subDir, ['Test', 'test']));
       return hasDoc || hasTest;
     })
     .map((d) => path.join(dataDir, d.name));
@@ -262,27 +251,17 @@ export function scanDataDirectory(dataDir: string): string[] {
 
 // ── Normalize Line Endings ────────────────────
 
-/**
- * Chuẩn hóa line endings:
- * - \r\n → \n (Windows → Unix)
- * - Trim trailing whitespace trên mỗi dòng
- * - Trim trailing newlines cuối file
- */
 export function normalizeLineEndings(content: string): string {
   return content
-    .replace(/\r\n/g, '\n')              // Windows → Unix line endings
+    .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((line) => line.trimEnd())        // Trim trailing whitespace per line
+    .map((line) => line.trimEnd())
     .join('\n')
-    .replace(/\n+$/, '');                 // Trim trailing newlines
+    .replace(/\n+$/, '');
 }
 
 // ── Extract Problem Code ──────────────────────
 
-/**
- * Trích xuất mã bài từ tên thư mục.
- * VD: "STRNUM" → "STRNUM"
- */
 export function extractProblemCode(dirName: string): string {
   return path.basename(dirName).toUpperCase();
 }

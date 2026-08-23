@@ -13,6 +13,7 @@ import { SupabaseStorageService } from './supabase-storage.service';
 import {
   scanDataDirectory,
   parseProblemDirectory,
+  findSubdirectory,
   ParsedProblem,
 } from './file-parser.util';
 
@@ -59,8 +60,11 @@ export class IngestionService {
    * 4. Upsert TestCases
    * 5. Upsert SolutionCodes
    */
-  async ingestProblem(problemDir: string): Promise<IngestionResult> {
-    const parsed = parseProblemDirectory(problemDir);
+  async ingestProblem(
+    problemDir: string,
+    overrideCode?: string,
+  ): Promise<IngestionResult> {
+    const parsed = parseProblemDirectory(problemDir, overrideCode);
 
     this.logger.log(`\n📂 Ingesting problem: ${parsed.code}`);
     this.logger.log(`   IO Type: ${parsed.ioType}`);
@@ -296,49 +300,86 @@ export class IngestionService {
     );
 
     try {
-      // Giải nén ZIP
       const zip = new AdmZip(zipBuffer);
       zip.extractAllTo(tmpDir, true);
-
-      this.logger.log(`📦 Extracted ZIP to: ${tmpDir}`);
-
-      // Kiểm tra cấu trúc: có thư mục con hay trực tiếp Doc/Test?
-      const entries = fs.readdirSync(tmpDir, { withFileTypes: true });
-      const hasDocOrTest = entries.some(
-        (e) =>
-          e.isDirectory() &&
-          (e.name.toLowerCase() === 'doc' || e.name.toLowerCase() === 'test'),
-      );
+      this.logger.log(`📦 Extracted ZIP "${originalFileName}" to: ${tmpDir}`);
 
       const results: IngestionResult[] = [];
+      const baseZipCode = path
+        .basename(originalFileName, path.extname(originalFileName))
+        .toUpperCase();
 
-      if (hasDocOrTest) {
-        // Cấu trúc phẳng: Doc/ + Test/ trực tiếp trong ZIP
-        // Dùng tên file ZIP (bỏ extension) làm mã bài
-        const problemCode = path
-          .basename(originalFileName, path.extname(originalFileName))
-          .toUpperCase();
-        const problemDir = tmpDir;
+      // Hàm đệ quy tìm tất cả thư mục chứa Doc hoặc Test
+      const findProblemDirs = (dir: string): string[] => {
+        const found: string[] = [];
+        if (!fs.existsSync(dir)) return found;
 
-        // Rename folders nếu cần (đảm bảo đúng case)
-        this.ensureDirectoryCase(tmpDir, problemCode);
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const hasDoc = Boolean(findSubdirectory(dir, ['Doc', 'doc', 'docs', 'Document', 'Documents']));
+        const hasTest = Boolean(findSubdirectory(dir, ['Test', 'test', 'tests', 'Tests']));
 
-        const result = await this.ingestProblem(problemDir);
-        results.push(result);
-      } else {
-        // Cấu trúc nested: mỗi thư mục con là một bài tập
+        if (hasDoc || hasTest) {
+          found.push(dir);
+          return found;
+        }
+
         for (const entry of entries) {
-          if (entry.isDirectory()) {
-            const problemDir = path.join(tmpDir, entry.name);
-            const result = await this.ingestProblem(problemDir);
-            results.push(result);
+          if (
+            entry.isDirectory() &&
+            !entry.name.startsWith('__') &&
+            !entry.name.startsWith('.')
+          ) {
+            found.push(...findProblemDirs(path.join(dir, entry.name)));
           }
+        }
+        return found;
+      };
+
+      const problemDirs = findProblemDirs(tmpDir);
+
+      if (problemDirs.length === 0) {
+        this.logger.warn(`⚠️ No Doc or Test folder found in ZIP "${originalFileName}"`);
+        results.push({
+          problemCode: baseZipCode,
+          success: false,
+          message: `Không tìm thấy thư mục Doc/ hoặc Test/ trong file ZIP "${originalFileName}". Vui lòng kiểm tra lại cấu trúc nén.`,
+          details: {
+            testCasesCount: 0,
+            solutionCodesCount: 0,
+            pdfUploaded: false,
+            ioType: 'STANDARD',
+            ioFileName: null,
+          },
+        });
+      } else {
+        for (const pDir of problemDirs) {
+          const isRoot = pDir === tmpDir;
+          const codeOverride = isRoot ? baseZipCode : undefined;
+          const result = await this.ingestProblem(pDir, codeOverride);
+          results.push(result);
         }
       }
 
       return results;
+    } catch (err: any) {
+      this.logger.error(`❌ ZIP extraction error: ${err.message}`);
+      return [
+        {
+          problemCode: path
+            .basename(originalFileName, path.extname(originalFileName))
+            .toUpperCase(),
+          success: false,
+          message: `Lỗi xử lý file ZIP: ${err.message}`,
+          details: {
+            testCasesCount: 0,
+            solutionCodesCount: 0,
+            pdfUploaded: false,
+            ioType: 'STANDARD',
+            ioFileName: null,
+          },
+        },
+      ];
     } finally {
-      // Cleanup temp directory
       this.cleanupDir(tmpDir);
     }
   }
