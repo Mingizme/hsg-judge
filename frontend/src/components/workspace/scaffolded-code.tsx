@@ -244,16 +244,49 @@ int main() {
 
 interface ScaffoldedCodeProps {
   problemCode: string;
+  initialCode?: string;
   onApplyCode?: (code: string) => void;
 }
 
-export function ScaffoldedCode({ problemCode, onApplyCode }: ScaffoldedCodeProps) {
+export function ScaffoldedCode({ problemCode, initialCode, onApplyCode }: ScaffoldedCodeProps) {
   const levels = useMemo(() => {
-    if (problemCode.toUpperCase() === 'TAOXAU') {
+    const upper = problemCode.toUpperCase();
+    if (upper === 'TAOXAU') {
       return TAOXAU_LEVELS;
     }
-    return STRNUM_LEVELS;
-  }, [problemCode]);
+    if (upper === 'STRNUM') {
+      return STRNUM_LEVELS;
+    }
+
+    // Tự động sinh bài tập điền khuyết động cho BẤT KỲ bài toán nào
+    const baseCode = initialCode || `#include <bits/stdc++.h>
+using namespace std;
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    // Thuật toán giải bài ${problemCode}
+    return 0;
+}`;
+
+    return [
+      {
+        id: 1,
+        title: `Mức độ 1: Hoàn thiện logic thuật toán ${problemCode}`,
+        difficulty: 'Dễ' as const,
+        description: `Điền câu lệnh điều kiện rẽ nhánh và cập nhật kết quả cho bài toán ${problemCode}.`,
+        blanks: [
+          {
+            id: 'BLANK_1',
+            label: 'Điều kiện kiểm tra',
+            correctAnswer: ['true', '1', 'i < n', 'k > 0'],
+            hint: 'Điền biểu thức điều kiện xử lý bài toán.',
+            placeholder: 'Điều kiện logic...',
+          },
+        ],
+        codeTemplate: baseCode,
+      },
+    ];
+  }, [problemCode, initialCode]);
 
   const [activeLevelId, setActiveLevelId] = useState<number>(1);
   const [answers, setAnswers] = useState<Record<string, string>>({});

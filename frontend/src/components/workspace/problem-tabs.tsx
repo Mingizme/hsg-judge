@@ -80,7 +80,7 @@ export function ProblemTabs({
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="scaffold" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <ScaffoldedCode problemCode={problemCode} onApplyCode={onApplyCode} />
+          <ScaffoldedCode problemCode={problemCode} initialCode={initialCode} onApplyCode={onApplyCode} />
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="history" className="h-full w-full outline-none data-[state=inactive]:hidden">

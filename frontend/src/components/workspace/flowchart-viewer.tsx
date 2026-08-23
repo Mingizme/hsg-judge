@@ -121,6 +121,13 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
     [setEdges]
   );
 
+  // 3. Tự động đồng bộ lại sơ đồ Nodes & Edges khi mã bài hoặc Code C++ thay đổi
+  React.useEffect(() => {
+    setNodes(initialGenerated.nodes);
+    setEdges(initialGenerated.edges);
+    setCurrentStepIndex(0);
+  }, [initialGenerated, setNodes, setEdges]);
+
   // Sync active step to nodes highlight
   React.useEffect(() => {
     if (!currentStep) return;
