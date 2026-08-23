@@ -139,11 +139,23 @@ export class SupabaseStorageService {
    * Upload file PDF của bài tập
    */
   async uploadProblemPdf(
-    localPdfPath: string,
+    pdfPath: string,
     problemCode: string,
   ): Promise<{ publicUrl: string; storagePath: string } | null> {
-    const fileName = path.basename(localPdfPath);
-    const storagePath = `problems/${problemCode}/${fileName}`;
-    return this.uploadFile(localPdfPath, storagePath);
+    const fileName = path.basename(pdfPath);
+    const storagePath = `problems/${problemCode.toUpperCase()}/${fileName}`;
+    return this.uploadFile(pdfPath, storagePath);
+  }
+
+  /**
+   * Upload file DOCX hướng dẫn giải của bài tập
+   */
+  async uploadProblemDocx(
+    docxPath: string,
+    problemCode: string,
+  ): Promise<{ publicUrl: string; storagePath: string } | null> {
+    const fileName = path.basename(docxPath);
+    const storagePath = `problems/${problemCode.toUpperCase()}/${fileName}`;
+    return this.uploadFile(docxPath, storagePath);
   }
 }

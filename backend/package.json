@@ -30,6 +30,7 @@
     "adm-zip": "^0.5.14",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "mammoth": "^1.12.1",
     "multer": "^1.4.5-lts.1",
     "prisma": "^5.19.0",
     "reflect-metadata": "^0.2.2",
@@ -37,7 +38,6 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.5.0"
   },
-  "devDependencies": {},
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   }

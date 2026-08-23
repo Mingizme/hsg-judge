@@ -11,6 +11,8 @@ import { useAuth } from '@/contexts/auth-context';
 interface WorkspaceLayoutProps {
   problemCode: string;
   pdfUrl?: string;
+  docxUrl?: string;
+  guideHtml?: string;
 }
 
 // Khung code khởi đầu cho Học sinh (chưa có thuật toán)
@@ -77,7 +79,12 @@ int main() {
     return 0;
 }`;
 
-export function WorkspaceLayout({ problemCode, pdfUrl }: WorkspaceLayoutProps) {
+export function WorkspaceLayout({
+  problemCode,
+  pdfUrl,
+  docxUrl,
+  guideHtml,
+}: WorkspaceLayoutProps) {
   const { isTeacher, isLoading } = useAuth();
   const hasUserEdited = React.useRef(false);
 
@@ -106,6 +113,8 @@ export function WorkspaceLayout({ problemCode, pdfUrl }: WorkspaceLayoutProps) {
           <div className="h-full border-r">
             <ProblemTabs
               pdfUrl={pdfUrl}
+              docxUrl={docxUrl}
+              guideHtml={guideHtml}
               problemCode={problemCode}
               onApplyCode={(newCode) => {
                 hasUserEdited.current = true;

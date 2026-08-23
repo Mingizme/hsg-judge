@@ -20,13 +20,14 @@ export default async function ProblemPage({ params }: ProblemPageProps) {
   const { code } = await params;
   const upperCode = code.toUpperCase();
   
-  // Direct public Supabase Storage URL for PDF
+  // Direct public Supabase Storage URL for PDF and DOCX
   const supabaseStorageBase = 'https://ekjqhmosasziofldicwb.supabase.co/storage/v1/object/public/problem-pdfs';
   const pdfUrl = `${supabaseStorageBase}/problems/${upperCode}/${upperCode.toLowerCase()}.pdf`;
+  const docxUrl = `${supabaseStorageBase}/problems/${upperCode}/${upperCode.toLowerCase()}.docx`;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
-      <WorkspaceLayout problemCode={upperCode} pdfUrl={pdfUrl} />
+      <WorkspaceLayout problemCode={upperCode} pdfUrl={pdfUrl} docxUrl={docxUrl} />
     </div>
   );
 }

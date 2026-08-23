@@ -105,6 +105,8 @@ model Problem {
   // Tài liệu
   pdfUrl          String?    @map("pdf_url")             // URL file PDF trên Supabase Storage
   pdfStoragePath  String?    @map("pdf_storage_path")    // Path trong Supabase bucket
+  docxUrl         String?    @map("docx_url")            // URL file DOCX trên Supabase Storage
+  guideHtml       String?    @map("guide_html") @db.Text // Nội dung hướng dẫn chi tiết trích xuất từ DOCX
 
   // Metadata
   totalTests      Int        @default(0) @map("total_tests")

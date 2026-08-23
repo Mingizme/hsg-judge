@@ -75,6 +75,8 @@ export class IngestionService {
       let pdfUrl: string | null = null;
       let pdfStoragePath: string | null = null;
       let pdfUploaded = false;
+      let docxUrl: string | null = null;
+      let guideHtml: string | null = null;
 
       if (parsed.pdfPath) {
         await this.storage.ensureBucket();
@@ -90,6 +92,25 @@ export class IngestionService {
         }
       }
 
+      if (parsed.docxPath && fs.existsSync(parsed.docxPath)) {
+        try {
+          const mammoth = require('mammoth');
+          const docxUpload = await this.storage.uploadProblemDocx(
+            parsed.docxPath,
+            parsed.code,
+          );
+          if (docxUpload) {
+            docxUrl = docxUpload.publicUrl;
+            this.logger.log(`   📤 DOCX uploaded: ${docxUrl}`);
+          }
+          const htmlResult = await mammoth.convertToHtml({ path: parsed.docxPath });
+          guideHtml = htmlResult.value;
+          this.logger.log(`   📄 DOCX converted to HTML (${guideHtml?.length || 0} chars)`);
+        } catch (docxErr) {
+          this.logger.warn(`   ⚠️ DOCX parse error: ${docxErr}`);
+        }
+      }
+
       // ── Step 2: Upsert Problem record ───────────
 
       const problem = await this.prisma.problem.upsert({
@@ -99,6 +120,8 @@ export class IngestionService {
           ioFileName: parsed.ioFileName,
           pdfUrl,
           pdfStoragePath,
+          docxUrl,
+          guideHtml,
           totalTests: parsed.testCases.length,
         },
         create: {
@@ -108,6 +131,8 @@ export class IngestionService {
           ioFileName: parsed.ioFileName,
           pdfUrl,
           pdfStoragePath,
+          docxUrl,
+          guideHtml,
           totalTests: parsed.testCases.length,
           timeLimitMs: parseInt(
             process.env.DEFAULT_TIME_LIMIT_MS || '1000',
