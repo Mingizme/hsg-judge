@@ -77,6 +77,35 @@ export default function TeacherPortalPage() {
   const API_URL =
     process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
 
+  const fetchProblems = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/problems`);
+      if (res.ok) {
+        const json = await res.json();
+        const rawList = json.data?.items || json.data || json;
+        if (Array.isArray(rawList) && rawList.length > 0) {
+          setProblems(rawList.map((p: any) => ({
+            code: p.code,
+            title: p.title,
+            totalTests: p.totalTests || 24,
+            ioType: p.ioType || 'FILE',
+            ioFileName: p.code.toLowerCase(),
+            hasPdf: Boolean(p.pdfUrl || true),
+            hasSolution: true,
+            maxScore: p.maxScore || 100,
+            subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : INITIAL_PROBLEMS[0].subtasks,
+          })));
+        }
+      }
+    } catch (err) {
+      console.warn('Teacher problems fetch notice:', err);
+    }
+  }, [API_URL]);
+
+  React.useEffect(() => {
+    fetchProblems();
+  }, [fetchProblems]);
+
   // Handle Scan Data Directory
   const handleScanDirectory = async () => {
     setIsScanning(true);
