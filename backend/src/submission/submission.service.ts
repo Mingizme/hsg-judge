@@ -90,11 +90,33 @@ export class SubmissionService {
       );
     }
 
-    // ── 2. Create Submission ──────────────────
+    // ── 2. Find or Create Valid User ─────────
+    let validUser = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userId },
+          { supabaseId: userId },
+          { email: 'student@hsgjudge.local' },
+        ],
+      },
+    });
+
+    if (!validUser) {
+      validUser = await this.prisma.user.upsert({
+        where: { email: 'student@hsgjudge.local' },
+        update: {},
+        create: {
+          supabaseId: userId || 'demo-student-supabase-id',
+          email: 'student@hsgjudge.local',
+          displayName: 'Học sinh',
+          role: 'STUDENT',
+        },
+      });
+    }
 
     const submission = await this.prisma.submission.create({
       data: {
-        userId,
+        userId: validUser.id,
         problemId: problem.id,
         sourceCode,
         language,

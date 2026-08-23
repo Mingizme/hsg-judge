@@ -26,47 +26,61 @@ export function useSSE(submissionId: string | null) {
     }
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-    let eventSource: EventSource;
+    let eventSource: EventSource | null = null;
     let reconnectTimeout: NodeJS.Timeout;
-    
+
     const connect = () => {
-      eventSource = new EventSource(`${apiUrl}/submissions/${submissionId}/stream`);
+      try {
+        const streamUrl = `${apiUrl}/submissions/${submissionId}/stream`;
+        eventSource = new EventSource(streamUrl);
 
-      eventSource.onopen = () => {
-        setIsConnected(true);
-      };
+        eventSource.onopen = () => {
+          setIsConnected(true);
+        };
 
-      const handleEvent = (type: SSEEventType) => (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data);
-          setEvents((prev) => [...prev, { type, data, timestamp: Date.now() }]);
-          
-          if (type === 'test-result') {
-            setLatestResult(data);
+        const processEvent = (type: SSEEventType, rawData: string) => {
+          try {
+            const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+            setEvents((prev) => [...prev, { type, data, timestamp: Date.now() }]);
+
+            if (type === 'test-result') {
+              setLatestResult(data);
+            }
+
+            if (type === 'complete' || type === 'error') {
+              setIsComplete(true);
+              eventSource?.close();
+            }
+          } catch (err) {
+            console.error('Failed to parse SSE event data', err);
           }
-          
-          if (type === 'complete' || type === 'error') {
-            setIsComplete(true);
-            eventSource.close();
+        };
+
+        // Handle default message event
+        eventSource.onmessage = (e: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(e.data);
+            const eventType = (parsed.type || (parsed.verdict ? 'test-result' : 'compile')) as SSEEventType;
+            const eventData = parsed.data || parsed;
+            processEvent(eventType, eventData);
+          } catch (err) {
+            console.error('SSE onmessage parse error', err);
           }
-        } catch (err) {
-          console.error('Failed to parse SSE event data', err);
-        }
-      };
+        };
 
-      eventSource.addEventListener('compile', handleEvent('compile'));
-      eventSource.addEventListener('test-result', handleEvent('test-result'));
-      eventSource.addEventListener('complete', handleEvent('complete'));
-      eventSource.addEventListener('error', handleEvent('error'));
+        // Handle named events from NestJS
+        eventSource.addEventListener('compile', (e: MessageEvent) => processEvent('compile', e.data));
+        eventSource.addEventListener('test-result', (e: MessageEvent) => processEvent('test-result', e.data));
+        eventSource.addEventListener('complete', (e: MessageEvent) => processEvent('complete', e.data));
+        eventSource.addEventListener('error', (e: MessageEvent) => processEvent('error', e.data));
 
-      eventSource.onerror = () => {
-        setIsConnected(false);
-        eventSource.close();
-        
-        if (!isComplete) {
-          reconnectTimeout = setTimeout(connect, 3000);
-        }
-      };
+        eventSource.onerror = (err) => {
+          console.warn('SSE stream notice:', err);
+          setIsConnected(false);
+        };
+      } catch (err) {
+        console.error('SSE connect failed', err);
+      }
     };
 
     connect();
@@ -77,7 +91,7 @@ export function useSSE(submissionId: string | null) {
       }
       clearTimeout(reconnectTimeout);
     };
-  }, [submissionId, isComplete]);
+  }, [submissionId]);
 
   return { events, isConnected, isComplete, latestResult };
 }
