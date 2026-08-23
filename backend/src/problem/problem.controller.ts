@@ -3,7 +3,7 @@
 // REST endpoints cho xem bài tập
 // ============================================
 
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import { ProblemService } from './problem.service';
 
 @Controller('problems')
@@ -40,5 +40,25 @@ export class ProblemController {
       statusCode: 200,
       data: problem,
     };
+  }
+
+  /**
+   * GET /api/problems/:code/pdf
+   * Chuyển hướng trực tiếp tới file PDF trên Supabase Storage
+   */
+  @Get(':code/pdf')
+  async getProblemPdf(@Param('code') code: string, @Res() res: any) {
+    try {
+      const problem = await this.problemService.getProblemByCode(code);
+      if (problem.pdfUrl) {
+        return res.redirect(problem.pdfUrl);
+      }
+    } catch {
+      // Fallback below
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || 'https://ekjqhmosasziofldicwb.supabase.co';
+    const directPdfUrl = `${supabaseUrl}/storage/v1/object/public/problem-pdfs/problems/${code.toUpperCase()}/${code.toLowerCase()}.pdf`;
+    return res.redirect(directPdfUrl);
   }
 }

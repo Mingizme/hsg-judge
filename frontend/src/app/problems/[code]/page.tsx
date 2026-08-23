@@ -20,8 +20,9 @@ export default async function ProblemPage({ params }: ProblemPageProps) {
   const { code } = await params;
   const upperCode = code.toUpperCase();
   
-  // Real backend PDF path or fallback
-  const pdfUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/problems/${upperCode}/pdf`;
+  // Direct public Supabase Storage URL for PDF
+  const supabaseStorageBase = 'https://ekjqhmosasziofldicwb.supabase.co/storage/v1/object/public/problem-pdfs';
+  const pdfUrl = `${supabaseStorageBase}/problems/${upperCode}/${upperCode.toLowerCase()}.pdf`;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
