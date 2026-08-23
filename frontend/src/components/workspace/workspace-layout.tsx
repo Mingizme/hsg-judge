@@ -116,6 +116,7 @@ export function WorkspaceLayout({
               docxUrl={docxUrl}
               guideHtml={guideHtml}
               problemCode={problemCode}
+              initialCode={TEACHER_SOLUTION_TEMPLATE}
               onApplyCode={(newCode) => {
                 hasUserEdited.current = true;
                 setCode(newCode);

@@ -14,6 +14,7 @@ interface ProblemTabsProps {
   docxUrl?: string;
   guideHtml?: string;
   problemCode: string;
+  initialCode?: string;
   onApplyCode?: (code: string) => void;
 }
 
@@ -22,6 +23,7 @@ export function ProblemTabs({
   docxUrl,
   guideHtml,
   problemCode,
+  initialCode,
   onApplyCode,
 }: ProblemTabsProps) {
   return (
@@ -48,7 +50,7 @@ export function ProblemTabs({
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="flowchart" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <FlowchartViewer problemCode={problemCode} />
+          <FlowchartViewer problemCode={problemCode} initialCode={initialCode} />
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="scaffold" className="h-full w-full outline-none data-[state=inactive]:hidden">

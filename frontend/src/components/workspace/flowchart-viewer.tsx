@@ -8,7 +8,6 @@ import ReactFlow, {
   Background,
   BackgroundVariant,
   MiniMap,
-  MarkerType,
   Position,
   Handle,
   useNodesState,
@@ -25,15 +24,13 @@ import {
   ChevronLeft,
   Sparkles,
   Plus,
-  Move,
-  Layers,
-  HelpCircle,
   Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateFlowchartFromCpp } from '@/lib/cpp-to-flowchart';
+import { generateSimulationTrace, SimulationStep } from '@/lib/simulation-generator';
 
-// Custom Flowchart Node with Drag Handle & High-aesthetic Visuals
+// Custom Flowchart Node with High-aesthetic Visuals
 function CustomNode({ id, data }: { id: string; data: any }) {
   const isCurrent = data.isActive;
 
@@ -72,101 +69,6 @@ const nodeTypes = {
   custom: CustomNode,
 };
 
-// Simulation Steps for Dry Run Trace (STRNUM: n=8, k=6, s="88432334")
-interface SimulationStep {
-  step: number;
-  nodeId: string;
-  i: number;
-  currentChar: string;
-  k: number;
-  stack: string[];
-  action: string;
-  explanation: string;
-}
-
-const SIMULATION_STEPS: SimulationStep[] = [
-  {
-    step: 1,
-    nodeId: 'node-init',
-    i: -1,
-    currentChar: '-',
-    k: 6,
-    stack: [],
-    action: 'Khởi tạo',
-    explanation: 'Đọc dữ liệu: n=8, k=6, s="88432334". Chuẩn bị Stack rỗng.',
-  },
-  {
-    step: 2,
-    nodeId: 'node-loop',
-    i: 0,
-    currentChar: '8',
-    k: 6,
-    stack: [],
-    action: 'Duyệt i=0',
-    explanation: 'Kí tự s[0]="8". Stack rỗng nên không pop. Đẩy "8" vào Stack.',
-  },
-  {
-    step: 3,
-    nodeId: 'node-push',
-    i: 0,
-    currentChar: '8',
-    k: 6,
-    stack: ['8'],
-    action: 'st.push("8")',
-    explanation: 'Stack hiện tại: [8].',
-  },
-  {
-    step: 4,
-    nodeId: 'node-condition',
-    i: 1,
-    currentChar: '8',
-    k: 6,
-    stack: ['8'],
-    action: 'Duyệt i=1',
-    explanation: 'Kí tự s[1]="8". s[1] <= st.top()=8 -> Không pop. Push "8".',
-  },
-  {
-    step: 5,
-    nodeId: 'node-push',
-    i: 1,
-    currentChar: '8',
-    k: 6,
-    stack: ['8', '8'],
-    action: 'st.push("8")',
-    explanation: 'Stack hiện tại: [8, 8].',
-  },
-  {
-    step: 6,
-    nodeId: 'node-condition',
-    i: 5,
-    currentChar: '3',
-    k: 6,
-    stack: ['8', '8', '4', '3', '2'],
-    action: 'Duyệt i=5: s[5]="3"',
-    explanation: 's[5]="3" > st.top()="2" và k=6 > 0 -> POP "2", k giảm còn 5!',
-  },
-  {
-    step: 7,
-    nodeId: 'node-pop',
-    i: 5,
-    currentChar: '3',
-    k: 5,
-    stack: ['8', '8', '4', '3'],
-    action: 'st.pop() -> Xóa 2',
-    explanation: 'Đã xóa phần tử nhỏ hơn để số lớn hơn đứng đầu.',
-  },
-  {
-    step: 8,
-    nodeId: 'node-output',
-    i: 8,
-    currentChar: 'Hết',
-    k: 0,
-    stack: ['8', '8'],
-    action: 'Xuất kết quả: "88"',
-    explanation: 'Đã hoàn thành! In kết quả tối ưu: 88 (Khớp 100% 24/24 Test Cases!)',
-  },
-];
-
 interface FlowchartViewerProps {
   problemCode?: string;
   initialCode?: string;
@@ -194,15 +96,22 @@ int main() {
 }`;
 
 export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: FlowchartViewerProps) {
+  const code = initialCode || DEFAULT_STRNUM_CODE;
+
+  // 1. Tự động sinh danh sách các bước mô phỏng (Dry-run Steps) cho từng bài
+  const simulationSteps = useMemo(() => {
+    return generateSimulationTrace(code, problemCode);
+  }, [code, problemCode]);
+
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const currentStep = SIMULATION_STEPS[currentStepIndex];
+  const currentStep = simulationSteps[currentStepIndex] || simulationSteps[0];
 
-  // Initial generated flowchart from C++
+  // 2. Tự động sinh cấu trúc Nodes & Edges từ Code C++
   const initialGenerated = useMemo(() => {
-    return generateFlowchartFromCpp(initialCode || DEFAULT_STRNUM_CODE, problemCode);
-  }, [initialCode, problemCode]);
+    return generateFlowchartFromCpp(code, problemCode);
+  }, [code, problemCode]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialGenerated.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialGenerated.edges);
@@ -212,8 +121,9 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
     [setEdges]
   );
 
-  // Sync active step to nodes
+  // Sync active step to nodes highlight
   React.useEffect(() => {
+    if (!currentStep) return;
     setNodes((nds) =>
       nds.map((node) => ({
         ...node,
@@ -223,12 +133,13 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
         },
       }))
     );
-  }, [currentStepIndex, currentStep?.nodeId, setNodes]);
+  }, [currentStepIndex, currentStep?.nodeId, setNodes, currentStep]);
 
   const handleResetLayout = () => {
-    const regenerated = generateFlowchartFromCpp(initialCode || DEFAULT_STRNUM_CODE, problemCode);
+    const regenerated = generateFlowchartFromCpp(code, problemCode);
     setNodes(regenerated.nodes);
     setEdges(regenerated.edges);
+    setCurrentStepIndex(0);
   };
 
   const handleAddNewNode = () => {
@@ -253,7 +164,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
     if (isPlaying) {
       timer = setInterval(() => {
         setCurrentStepIndex((prev) => {
-          if (prev >= SIMULATION_STEPS.length - 1) {
+          if (prev >= simulationSteps.length - 1) {
             setIsPlaying(false);
             return prev;
           }
@@ -262,7 +173,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
       }, 1800);
     }
     return () => clearInterval(timer);
-  }, [isPlaying]);
+  }, [isPlaying, simulationSteps.length]);
 
   return (
     <div className="flex flex-col h-full w-full bg-background overflow-hidden relative">
@@ -293,12 +204,12 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
           </button>
 
           <span className="text-[11px] font-mono font-semibold px-1 text-muted-foreground">
-            Bước {currentStepIndex + 1}/{SIMULATION_STEPS.length}
+            Bước {currentStepIndex + 1}/{simulationSteps.length}
           </span>
 
           <button
-            onClick={() => setCurrentStepIndex((prev) => Math.min(SIMULATION_STEPS.length - 1, prev + 1))}
-            disabled={currentStepIndex === SIMULATION_STEPS.length - 1 || isPlaying}
+            onClick={() => setCurrentStepIndex((prev) => Math.min(simulationSteps.length - 1, prev + 1))}
+            disabled={currentStepIndex === simulationSteps.length - 1 || isPlaying}
             className="p-1 rounded-lg border bg-background hover:bg-muted text-foreground disabled:opacity-40 text-xs"
             title="Bước kế tiếp"
           >
@@ -370,7 +281,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
         </ReactFlow>
       </div>
 
-      {/* Bottom Live Dry Run Variable Watcher Bar */}
+      {/* Bottom Live Dry Run Dynamic Variable Watcher Bar */}
       {currentStep && (
         <div className="border-t bg-card/95 backdrop-blur px-4 py-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shrink-0 z-10 shadow-lg">
           <div className="flex items-center gap-3">
@@ -381,18 +292,18 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
               <span className="px-2 py-0.5 rounded bg-muted border">i = {currentStep.i >= 0 ? currentStep.i : '-'}</span>
               <span className="px-2 py-0.5 rounded bg-muted border">s[i] = &apos;{currentStep.currentChar}&apos;</span>
               <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold">
-                k = {currentStep.k}
+                {currentStep.primaryVarName} = {currentStep.primaryVarValue}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 font-mono">
-            <span className="text-muted-foreground font-sans">Stack:</span>
+            <span className="text-muted-foreground font-sans">{currentStep.memoryLabel || 'Bộ nhớ'}:</span>
             <div className="flex items-center gap-1">
-              {currentStep.stack.length === 0 ? (
+              {!currentStep.memoryItems || currentStep.memoryItems.length === 0 ? (
                 <span className="text-muted-foreground italic font-sans text-[11px]">[rỗng]</span>
               ) : (
-                currentStep.stack.map((item, idx) => (
+                currentStep.memoryItems.map((item, idx) => (
                   <span
                     key={idx}
                     className="w-5 h-5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 font-bold flex items-center justify-center text-xs"
