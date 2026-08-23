@@ -87,6 +87,7 @@ export class ProblemService {
         maxScore: p.maxScore,
         isPublished: p.isPublished,
         categories: p.problemTags.map((pt) => pt.category),
+        createdBy: p.createdBy,
         createdAt: p.createdAt,
       })),
       pagination: {

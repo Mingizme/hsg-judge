@@ -19,6 +19,15 @@ import {
 
 // ── Types ─────────────────────────────────────
 
+export interface IngestionOptions {
+  title?: string;
+  difficulty?: string;
+  category?: string;
+  createdBy?: string;
+  timeLimitMs?: number;
+  memoryLimitMb?: number;
+}
+
 export interface IngestionResult {
   problemCode: string;
   success: boolean;
@@ -52,17 +61,11 @@ export class IngestionService {
 
   /**
    * Nạp dữ liệu từ một thư mục bài tập đơn lẻ.
-   *
-   * Pipeline:
-   * 1. Parse thư mục → ParsedProblem
-   * 2. Upload PDF → Supabase Storage
-   * 3. Upsert Problem record
-   * 4. Upsert TestCases
-   * 5. Upsert SolutionCodes
    */
   async ingestProblem(
     problemDir: string,
     overrideCode?: string,
+    options?: IngestionOptions,
   ): Promise<IngestionResult> {
     const parsed = parseProblemDirectory(problemDir, overrideCode);
 
@@ -120,6 +123,9 @@ export class IngestionService {
       const problem = await this.prisma.problem.upsert({
         where: { code: parsed.code },
         update: {
+          title: options?.title || undefined,
+          difficulty: (options?.difficulty as any) || undefined,
+          createdBy: options?.createdBy || undefined,
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
           pdfUrl,
@@ -128,10 +134,14 @@ export class IngestionService {
           guideHtml,
           isPublished: true,
           totalTests: parsed.testCases.length,
+          timeLimitMs: options?.timeLimitMs || undefined,
+          memoryLimitMb: options?.memoryLimitMb || undefined,
         },
         create: {
           code: parsed.code,
-          title: parsed.code, // Tạm dùng mã bài làm tiêu đề
+          title: options?.title || parsed.code,
+          difficulty: (options?.difficulty as any) || 'MEDIUM',
+          createdBy: options?.createdBy || null,
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
           pdfUrl,
@@ -140,16 +150,47 @@ export class IngestionService {
           guideHtml,
           isPublished: true,
           totalTests: parsed.testCases.length,
-          timeLimitMs: parseInt(
-            process.env.DEFAULT_TIME_LIMIT_MS || '1000',
-            10,
-          ),
-          memoryLimitMb: parseInt(
-            process.env.DEFAULT_MEMORY_LIMIT_MB || '256',
-            10,
-          ),
+          timeLimitMs:
+            options?.timeLimitMs ||
+            parseInt(process.env.DEFAULT_TIME_LIMIT_MS || '1000', 10),
+          memoryLimitMb:
+            options?.memoryLimitMb ||
+            parseInt(process.env.DEFAULT_MEMORY_LIMIT_MB || '256', 10),
         },
       });
+
+      // Gắn category nếu có
+      if (options?.category) {
+        try {
+          const catName = options.category.trim();
+          const slug = catName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general';
+          const cat = await this.prisma.category.upsert({
+            where: { slug },
+            update: { name: catName, nameVi: catName },
+            create: {
+              name: catName,
+              nameVi: catName,
+              slug,
+              color: '#3b82f6',
+            },
+          });
+          await this.prisma.problemTag.upsert({
+            where: {
+              problemId_categoryId: {
+                problemId: problem.id,
+                categoryId: cat.id,
+              },
+            },
+            update: {},
+            create: {
+              problemId: problem.id,
+              categoryId: cat.id,
+            },
+          });
+        } catch (catErr) {
+          this.logger.warn(`   ⚠️ Category tag error: ${catErr}`);
+        }
+      }
 
       this.logger.log(`   ✅ Problem record: ${problem.id}`);
 
@@ -295,6 +336,7 @@ export class IngestionService {
   async ingestFromZip(
     zipBuffer: Buffer,
     originalFileName: string,
+    options?: IngestionOptions,
   ): Promise<IngestionResult[]> {
     const tmpDir = path.join(
       process.env.TEMP || '/tmp',
@@ -357,7 +399,7 @@ export class IngestionService {
         for (const pDir of problemDirs) {
           const isRoot = pDir === tmpDir;
           const codeOverride = isRoot ? baseZipCode : undefined;
-          const result = await this.ingestProblem(pDir, codeOverride);
+          const result = await this.ingestProblem(pDir, codeOverride, options);
           results.push(result);
         }
       }

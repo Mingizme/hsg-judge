@@ -23,12 +23,20 @@ import {
   ArrowRight,
   LogIn,
   BarChart3,
+  Settings2,
+  UserCheck,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DifficultyBadge } from '@/components/problems/difficulty-badge';
 
 interface IngestedProblem {
   code: string;
   title: string;
+  difficulty?: string;
+  category?: string[];
+  createdBy?: string | null;
   totalTests: number;
   ioType: 'FILE' | 'STANDARD';
   ioFileName: string;
@@ -43,21 +51,16 @@ interface IngestedProblem {
   }[];
 }
 
-const INITIAL_PROBLEMS: IngestedProblem[] = [
-  {
-    code: 'STRNUM',
-    title: 'Xóa chữ số tạo số lớn nhất',
-    totalTests: 24,
-    ioType: 'FILE',
-    ioFileName: 'strnum',
-    hasPdf: true,
-    hasSolution: true,
-    maxScore: 100,
-    subtasks: [
-      { id: 'sub-1', label: 'Subtask 1: N ≤ 100, K ≤ 10', score: 30, testRange: 'Test 01 - Test 08' },
-      { id: 'sub-2', label: 'Subtask 2: N ≤ 10^5, K < N', score: 70, testRange: 'Test 09 - Test 24' },
-    ],
-  },
+const CATEGORY_PRESETS = [
+  'Xâu ký tự',
+  'Tham lam',
+  'Quy hoạch động',
+  'Đồ thị & Cây',
+  'Cấu trúc dữ liệu (Stack/Queue/Segment Tree)',
+  'Tìm kiếm & Sắp xếp',
+  'Số học & Toán rời rạc',
+  'Hình học tính toán',
+  'Cơ bản / Nhập môn',
 ];
 
 export default function TeacherPortalPage() {
@@ -70,6 +73,17 @@ export default function TeacherPortalPage() {
   const [selectedProblem, setSelectedProblem] = useState<IngestedProblem | null>(null);
   const [editSubtasks, setEditSubtasks] = useState<IngestedProblem['subtasks']>([]);
   const [analytics, setAnalytics] = useState<any>(null);
+
+  // Pre-Upload Settings Modal State
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingCode, setSettingCode] = useState('');
+  const [settingTitle, setSettingTitle] = useState('');
+  const [settingDifficulty, setSettingDifficulty] = useState('MEDIUM');
+  const [settingCategory, setSettingCategory] = useState('Xâu ký tự');
+  const [settingTimeLimit, setSettingTimeLimit] = useState('1000');
+  const [settingMemoryLimit, setSettingMemoryLimit] = useState('256');
+  const [settingCreatedBy, setSettingCreatedBy] = useState('');
 
   // Upgrade form state
   const [teacherSecretCode, setTeacherSecretCode] = useState('');
@@ -105,20 +119,24 @@ export default function TeacherPortalPage() {
       const res = await fetch(`${API_URL}/problems`);
       if (res.ok) {
         const json = await res.json();
-        // Backend trả về { problems: [...], pagination: {...} } hoặc bọc trong { data: {...} }
         const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
         if (Array.isArray(rawList)) {
-          setProblems(rawList.map((p: any) => ({
-            code: p.code,
-            title: p.title || p.code,
-            totalTests: p.totalTests || 0,
-            ioType: p.ioType || 'STANDARD',
-            ioFileName: p.ioFileName || p.code?.toLowerCase() || '',
-            hasPdf: Boolean(p.pdfUrl),
-            hasSolution: true,
-            maxScore: p.maxScore || 100,
-            subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : [],
-          })));
+          setProblems(
+            rawList.map((p: any) => ({
+              code: p.code,
+              title: p.title || p.code,
+              difficulty: p.difficulty || 'MEDIUM',
+              category: p.categories?.map((c: any) => c.name || c.nameVi) || ['Tin học HSG'],
+              createdBy: p.createdBy || null,
+              totalTests: p.totalTests || 0,
+              ioType: p.ioType || 'STANDARD',
+              ioFileName: p.ioFileName || p.code?.toLowerCase() || '',
+              hasPdf: Boolean(p.pdfUrl),
+              hasSolution: true,
+              maxScore: p.maxScore || 100,
+              subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : [],
+            }))
+          );
         }
       }
     } catch (err) {
@@ -129,6 +147,80 @@ export default function TeacherPortalPage() {
   React.useEffect(() => {
     fetchProblems();
   }, [fetchProblems]);
+
+  // When a file is selected -> Open Settings Modal first
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const baseName = file.name.replace(/\.zip$/i, '').toUpperCase();
+    setPendingFile(file);
+    setSettingCode(baseName);
+    setSettingTitle(`Bài tập ${baseName}`);
+    setSettingDifficulty('MEDIUM');
+    setSettingCategory('Xâu ký tự');
+    setSettingTimeLimit('1000');
+    setSettingMemoryLimit('256');
+    setSettingCreatedBy(profile?.displayName || user?.email || 'Ban Chuyên Môn');
+    setIsSettingsOpen(true);
+
+    // Reset input value so same file can be re-triggered if canceled
+    e.target.value = '';
+  };
+
+  // Submit Upload with Settings
+  const handleConfirmUpload = async () => {
+    if (!pendingFile) return;
+
+    setIsUploading(true);
+    setUploadMessage(null);
+    setIsSettingsOpen(false);
+
+    const formData = new FormData();
+    formData.append('file', pendingFile);
+    formData.append('title', settingTitle);
+    formData.append('difficulty', settingDifficulty);
+    formData.append('category', settingCategory);
+    formData.append('createdBy', settingCreatedBy);
+    formData.append('timeLimitMs', settingTimeLimit);
+    formData.append('memoryLimitMb', settingMemoryLimit);
+
+    try {
+      const res = await fetch(`${API_URL}/ingestion/upload-zip`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.data?.results) {
+        const results = data.data.results;
+        const successItem = results.find((r: any) => r.success);
+        const failedItem = results.find((r: any) => !r.success);
+
+        if (successItem) {
+          setUploadMessage({
+            type: 'success',
+            text: `🎉 Nạp thành công bài "${settingCode}" do "${settingCreatedBy}" tải lên (${successItem.details?.testCasesCount || 0} Testcases, ${successItem.details?.pdfUploaded ? 'Đề PDF, ' : ''}Lời giải C++)!`,
+          });
+          await fetchProblems();
+        } else if (failedItem) {
+          setUploadMessage({
+            type: 'error',
+            text: `❌ ${failedItem.message}`,
+          });
+        }
+      } else {
+        throw new Error(data.message || 'Lỗi nạp file ZIP');
+      }
+    } catch (err: any) {
+      setUploadMessage({
+        type: 'error',
+        text: err.message || 'Lỗi tải lên file ZIP. Vui lòng kiểm tra lại kết nối mạng.',
+      });
+    } finally {
+      setIsUploading(false);
+      setPendingFile(null);
+    }
+  };
 
   // Handle Scan Data Directory
   const handleScanDirectory = async () => {
@@ -157,55 +249,6 @@ export default function TeacherPortalPage() {
       });
     } finally {
       setIsScanning(false);
-    }
-  };
-
-  // Handle ZIP File Upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    setUploadMessage(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const res = await fetch(`${API_URL}/ingestion/upload-zip`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (res.ok && data.data?.results) {
-        const results = data.data.results;
-        const successItem = results.find((r: any) => r.success);
-        const failedItem = results.find((r: any) => !r.success);
-
-        if (successItem) {
-          setUploadMessage({
-            type: 'success',
-            text: `🎉 Nạp thành công bài "${successItem.problemCode}" (${successItem.details?.testCasesCount || 0} Testcases, ${successItem.details?.pdfUploaded ? 'Đề PDF, ' : ''}Lời giải C++)!`,
-          });
-          await fetchProblems();
-        } else if (failedItem) {
-          setUploadMessage({
-            type: 'error',
-            text: `❌ ${failedItem.message}`,
-          });
-        }
-      } else {
-        throw new Error(data.message || 'Lỗi nạp file ZIP');
-      }
-    } catch (err: any) {
-      setUploadMessage({
-        type: 'error',
-        text: err.message || 'Lỗi tải lên file ZIP. Vui lòng kiểm tra lại kết nối mạng.',
-      });
-    } finally {
-      setIsUploading(false);
-      // Reset input value so same file can be re-selected if needed
-      e.target.value = '';
     }
   };
 
@@ -248,36 +291,46 @@ export default function TeacherPortalPage() {
     setIsUpgrading(false);
 
     if (!res.success) {
-      setUpgradeError(res.message);
+      setUpgradeError(res.message || 'Mã xác thực không hợp lệ. Thử lại với "HSG_TEACHER_2026"');
     }
   };
 
-  // ── Role Guard: Not Logged In ───────────────────
-  if (!isLoading && !user) {
+  // 1. Loading state
+  if (isLoading) {
     return (
-      <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 bg-muted/20">
-        <div className="w-full max-w-md p-8 rounded-2xl border bg-card shadow-xl text-center space-y-5 animate-in fade-in zoom-in-95">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
-            <ShieldAlert className="w-7 h-7" />
+      <div className="container mx-auto px-4 py-24 max-w-5xl flex flex-col items-center justify-center space-y-4">
+        <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-muted-foreground text-sm">Đang xác thực quyền Giáo viên...</p>
+      </div>
+    );
+  }
+
+  // 2. Not logged in
+  if (!user) {
+    return (
+      <div className="container mx-auto px-4 py-20 max-w-md">
+        <div className="bg-card border rounded-2xl p-8 shadow-xl text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+            <ShieldAlert className="w-8 h-8" />
           </div>
-          <div className="space-y-1.5">
-            <h2 className="text-xl font-bold">Yêu cầu tài khoản Giáo viên</h2>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Trang Quản trị & Upload bài tập chỉ dành riêng cho Giáo viên bồi dưỡng HSG Tin học.
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight">Khu Vực Dành Cho Giáo Viên</h1>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              Bạn cần đăng nhập bằng tài khoản Giáo viên để quản trị bộ đề thi, nạp file ZIP bài tập và cấu hình thang điểm.
             </p>
           </div>
-          <div className="pt-2 flex flex-col gap-2">
+          <div className="space-y-3 pt-2">
             <Link
               href="/login"
-              className="py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs shadow-sm hover:bg-primary/90 transition flex items-center justify-center gap-1.5"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition shadow-md"
             >
-              <LogIn className="w-4 h-4" /> Đăng nhập tài khoản Giáo viên
+              <LogIn className="w-4 h-4" /> Đăng nhập ngay
             </Link>
             <Link
               href="/register"
-              className="py-2.5 rounded-xl border text-xs font-semibold hover:bg-muted transition"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border bg-background hover:bg-muted font-medium text-xs text-foreground transition"
             >
-              Đăng ký tài khoản mới
+              Đăng ký tài khoản Giáo viên mới <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </div>
@@ -285,408 +338,584 @@ export default function TeacherPortalPage() {
     );
   }
 
-  // ── Role Guard: Logged in as Student (Restricted) ─
-  if (!isLoading && user && !isTeacher) {
+  // 3. Logged in as Student -> Show Upgrade Panel
+  if (!isTeacher) {
     return (
-      <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 bg-muted/20">
-        <div className="w-full max-w-lg p-8 rounded-2xl border bg-card shadow-xl space-y-6 animate-in fade-in zoom-in-95">
-          <div className="text-center space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto mb-2">
-              <ShieldAlert className="w-7 h-7" />
+      <div className="container mx-auto px-4 py-16 max-w-lg">
+        <div className="bg-card border rounded-2xl p-8 shadow-xl space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center shrink-0">
+              <KeyRound className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-bold">Không có quyền truy cập</h2>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Tài khoản của bạn hiện có vai trò là <strong>Học sinh tuyển</strong>. Chỉ có tài khoản <strong>Giáo viên</strong> mới có quyền tải lên bài tập và cấu hình bộ test thi đấu.
-            </p>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight">Kích Hoạt Quyền Giáo Viên</h1>
+              <p className="text-muted-foreground text-xs mt-0.5">
+                Tài khoản <span className="font-semibold text-foreground">{user.email}</span> hiện có vai trò Học sinh.
+              </p>
+            </div>
           </div>
 
-          {/* Quick Upgrade to Teacher Form */}
-          <div className="p-4 rounded-xl border bg-amber-500/5 border-amber-500/20 space-y-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
-              <ShieldCheck className="w-4 h-4" /> Bạn là Giáo viên? Nâng cấp quyền tại đây:
+          <form onSubmit={handleUpgradeRole} className="space-y-4 pt-2">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Mã bí mật xác thực Giáo viên (Invite Code)
+              </label>
+              <input
+                type="password"
+                placeholder="Nhập mã bí mật..."
+                value={teacherSecretCode}
+                onChange={(e) => setTeacherSecretCode(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
             </div>
 
             {upgradeError && (
-              <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600 text-xs flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5" />
+              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{upgradeError}</span>
               </div>
             )}
 
-            <form onSubmit={handleUpgradeRole} className="flex gap-2">
-              <input
-                type="text"
-                value={teacherSecretCode}
-                onChange={(e) => setTeacherSecretCode(e.target.value)}
-                placeholder="Nhập mã xác thực (HSG_TEACHER_2026)"
-                className="flex-1 px-3 py-1.5 rounded-lg border bg-background text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-              <button
-                type="submit"
-                disabled={isUpgrading}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition shrink-0"
-              >
-                {isUpgrading ? 'Đang xác thực...' : 'Kích hoạt'}
-              </button>
-            </form>
-          </div>
-
-          <div className="pt-2 text-center">
-            <Link
-              href="/problems"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+            <button
+              type="submit"
+              disabled={isUpgrading}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold text-sm hover:opacity-95 transition shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              Quay lại danh sách bài tập học sinh <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
+              {isUpgrading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Đang nâng cấp...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" /> Kích hoạt quyền Giáo viên
+                </>
+              )}
+            </button>
+          </form>
         </div>
       </div>
     );
   }
 
-  // ── Authorized Teacher Portal ────────────────────
+  // 4. Authenticated Teacher -> Render Full Ingestion & Problem Management UI
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
+    <div className="container mx-auto px-4 py-8 max-w-7xl space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-1">
-            <ShieldCheck className="w-4 h-4 text-amber-500" /> Bảng Quản Trị Giáo Viên
+          <div className="flex items-center gap-2 text-primary font-semibold text-xs mb-1">
+            <ShieldCheck className="w-4 h-4" /> Bảng Quản Trị Giáo Viên
           </div>
           <h1 className="text-3xl font-bold tracking-tight">Ingestion & Cấu Hình Bài Tập</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Tự động trích xuất gói dữ liệu đề thi (.ZIP / Folder Data), quản lý bộ test và cấu hình thang điểm subtask.
+            Tự động trích xuất gói dữ liệu đề thi (.ZIP), phân loại dạng bài, cấu hình thang điểm và quản trị toàn diện.
           </p>
         </div>
 
-        <button
-          onClick={handleScanDirectory}
-          disabled={isScanning}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-medium transition shadow-sm"
-        >
-          <FolderSync className={cn('w-4 h-4', isScanning && 'animate-spin')} />
-          {isScanning ? 'Đang quét...' : 'Quét thư mục Data/'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleScanDirectory}
+            disabled={isScanning || isUploading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm disabled:opacity-50"
+          >
+            <FolderSync className={cn('w-4 h-4', isScanning && 'animate-spin text-primary')} />
+            <span>{isScanning ? 'Đang quét Data/...' : 'Quét thư mục Data/'}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Notification Toast */}
+      {/* Message Banner */}
       {uploadMessage && (
         <div
           className={cn(
-            'p-4 rounded-xl border flex items-center gap-3 text-sm transition-all',
+            'p-4 rounded-2xl border text-sm flex items-center justify-between gap-3 shadow-md animate-in fade-in slide-in-from-top-2',
             uploadMessage.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-              : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+              : 'bg-destructive/10 border-destructive/30 text-destructive'
           )}
         >
-          {uploadMessage.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 shrink-0" />
-          )}
-          <span>{uploadMessage.text}</span>
+          <div className="flex items-center gap-2.5">
+            {uploadMessage.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+            )}
+            <span className="font-medium">{uploadMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setUploadMessage(null)}
+            className="text-xs opacity-70 hover:opacity-100 px-2 py-1 rounded-lg border bg-background/50"
+          >
+            Đóng
+          </button>
         </div>
       )}
 
-      {/* Ingestion Pipeline Grid */}
+      {/* Ingestion Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Upload ZIP Drag-and-Drop Box */}
-        <div className="lg:col-span-1 p-6 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 flex flex-col items-center justify-center text-center relative overflow-hidden group hover:border-primary transition cursor-pointer">
-          <input
-            type="file"
-            accept=".zip"
-            onChange={handleFileUpload}
-            disabled={isUploading}
-            className="absolute inset-0 opacity-0 cursor-pointer z-10"
-          />
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition">
-            {isUploading ? (
-              <RefreshCw className="w-8 h-8 animate-spin" />
-            ) : (
-              <UploadCloud className="w-8 h-8" />
-            )}
+        {/* ZIP Upload Card */}
+        <div className="lg:col-span-1 border rounded-2xl bg-card p-6 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+          <div className="space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
+              <UploadCloud className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-foreground">Nạp bài từ file ZIP</h3>
+              <p className="text-muted-foreground text-xs mt-1 leading-relaxed">
+                Kéo thả file .ZIP chuẩn cấu trúc (Doc/ + Test/). Bảng thiết lập sẽ hiện lên để bạn tùy chỉnh độ khó & thể loại trước khi nạp.
+              </p>
+            </div>
           </div>
-          <h3 className="font-bold text-base text-foreground">Nạp bài từ file ZIP</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
-            Kéo thả file <strong>.ZIP</strong> chuẩn cấu trúc (Doc/ + Test/) vào đây để nạp tự động.
-          </p>
-          <span className="mt-4 px-3 py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-lg shadow-sm">
-            {isUploading ? 'Đang giải nén...' : 'Chọn file .ZIP'}
-          </span>
+
+          <div className="mt-6 pt-4 border-t">
+            <label className="relative flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-xl hover:border-primary cursor-pointer transition bg-muted/20 hover:bg-muted/40">
+              <FileArchive className="w-8 h-8 text-muted-foreground mb-2 group-hover:scale-110 transition-transform" />
+              <span className="text-xs font-semibold text-foreground">
+                {isUploading ? 'Đang giải nén & nạp bài...' : 'Chọn file .ZIP để thiết lập'}
+              </span>
+              <span className="text-[11px] text-muted-foreground mt-0.5">Tối đa 50MB</span>
+              <input
+                type="file"
+                accept=".zip"
+                onChange={handleFileSelect}
+                disabled={isUploading}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
 
-        {/* Ingestion Rules & Standard Format Card */}
-        <div className="lg:col-span-2 p-6 rounded-2xl border bg-card/60 space-y-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-            <FileArchive className="w-4 h-4 text-primary" />
+        {/* Pipeline Guide Card */}
+        <div className="lg:col-span-2 border rounded-2xl bg-card p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-foreground font-bold text-base">
+            <Layers className="w-5 h-5 text-primary" />
             <span>Quy Chuẩn Cấu Trúc Gói Bài Tập (Ingestion Pipeline)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-xl border bg-background space-y-1.5">
-              <div className="font-semibold text-foreground flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-blue-500" /> Thư mục Doc/
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded-xl bg-muted/30 border space-y-2">
+              <div className="font-semibold text-primary flex items-center gap-1.5">
+                <FileText className="w-4 h-4" /> Thư mục Doc/
               </div>
-              <ul className="text-muted-foreground list-disc list-inside space-y-1">
-                <li><strong>*.pdf</strong>: Đề bài chính thức (nhúng web).</li>
-                <li><strong>*.cpp</strong>: Lời giải chính & các cách giải khác.</li>
-                <li>Hệ thống tự nhận diện File I/O (`freopen`).</li>
+              <ul className="space-y-1 text-muted-foreground list-disc list-inside leading-relaxed">
+                <li><strong className="text-foreground">*.pdf</strong>: Đề bài chính thức (nhúng web).</li>
+                <li><strong className="text-foreground">*.docx</strong>: Hướng dẫn thuật toán chi tiết.</li>
+                <li><strong className="text-foreground">*.cpp</strong>: Lời giải mẫu chính & các cách giải khác.</li>
+                <li>Hệ thống tự nhận diện File I/O (&apos;freopen&apos;).</li>
               </ul>
             </div>
 
-            <div className="p-3 rounded-xl border bg-background space-y-1.5">
-              <div className="font-semibold text-foreground flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-amber-500" /> Thư mục Test/
+            <div className="p-4 rounded-xl bg-muted/30 border space-y-2">
+              <div className="font-semibold text-amber-500 flex items-center gap-1.5">
+                <Sliders className="w-4 h-4" /> Thư mục Test/
               </div>
-              <ul className="text-muted-foreground list-disc list-inside space-y-1">
-                <li>Chứa các thư mục con <strong>Test01</strong> ... <strong>TestN</strong>.</li>
-                <li>Mỗi thư mục gồm cặp file <strong>.INP</strong> và <strong>.OUT</strong>.</li>
+              <ul className="space-y-1 text-muted-foreground list-disc list-inside leading-relaxed">
+                <li>Chứa các thư mục con <strong className="text-foreground">Test01 ... TestN</strong>.</li>
+                <li>Mỗi thư mục gồm cặp file <strong className="text-foreground">.INP</strong> và <strong className="text-foreground">.OUT</strong>.</li>
                 <li>Tự động chuẩn hóa dấu xuống dòng Windows/Linux.</li>
+                <li>Hỗ trợ bộ test từ 5 đến 100 testcases.</li>
               </ul>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Problem Management Table */}
-      <div className="p-6 rounded-2xl border bg-card/60 shadow-sm space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-lg font-bold">Danh Sách Bài Tập Đã Nạp ({problems.length})</h2>
+      {/* Problems Management Table */}
+      <div className="border rounded-2xl bg-card shadow-sm overflow-hidden space-y-4 p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <h3 className="font-bold text-lg text-foreground">
+              Danh Sách Bài Tập Đã Nạp ({problems.length})
+            </h3>
+            <p className="text-muted-foreground text-xs">
+              Các bài toán đang hoạt động trên hệ thống chấm bài trực tuyến.
+            </p>
+          </div>
+
+          <button
+            onClick={fetchProblems}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Làm mới
+          </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase text-muted-foreground border-b bg-muted/20">
+        <div className="overflow-x-auto border rounded-xl">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-muted/50 border-b font-semibold text-muted-foreground uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="py-3 px-4">Mã bài</th>
-                <th className="py-3 px-4">Tiêu đề bài</th>
-                <th className="py-3 px-4 text-center">Số Test Cases</th>
-                <th className="py-3 px-4 text-center">Chuẩn I/O</th>
-                <th className="py-3 px-4 text-center">Đề PDF</th>
-                <th className="py-3 px-4 text-center">Lời giải mẫu</th>
-                <th className="py-3 px-4 text-right">Thao tác</th>
+                <th className="px-4 py-3">Mã Bài</th>
+                <th className="px-4 py-3">Tiêu Đề Bài</th>
+                <th className="px-4 py-3">Độ Khó & Thể Loại</th>
+                <th className="px-4 py-3">Giáo Viên Nạp</th>
+                <th className="px-4 py-3">Số Test</th>
+                <th className="px-4 py-3">Chuẩn I/O</th>
+                <th className="px-4 py-3">Đề PDF</th>
+                <th className="px-4 py-3">Lời Giải</th>
+                <th className="px-4 py-3 text-right">Thao Tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/50">
-              {problems.map((p) => (
-                <tr key={p.code} className="hover:bg-muted/30 transition">
-                  <td className="py-3.5 px-4 font-mono font-bold text-primary">{p.code}</td>
-                  <td className="py-3.5 px-4 font-medium text-foreground">{p.title}</td>
-                  <td className="py-3.5 px-4 text-center font-mono font-semibold text-emerald-500">
-                    {p.totalTests} tests
-                  </td>
-                  <td className="py-3.5 px-4 text-center">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-muted text-muted-foreground">
-                      {p.ioType === 'FILE' ? `freopen("${p.ioFileName}.inp")` : 'cin/cout'}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-center">
-                    {p.hasPdf ? (
-                      <span className="text-emerald-500 font-bold text-xs">✓ Đã nạp</span>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">Chưa có</span>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-center">
-                    {p.hasSolution ? (
-                      <span className="text-emerald-500 font-bold text-xs">✓ 2 cách giải</span>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">Chưa có</span>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <button
-                      onClick={() => handleOpenSubtaskModal(p)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition"
-                    >
-                      <Sliders className="w-3.5 h-3.5" /> Cấu hình Subtask
-                    </button>
+            <tbody className="divide-y font-mono">
+              {problems.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground font-sans text-xs">
+                    Chưa có bài tập nào. Hãy chọn file .ZIP để tải bài lên hệ thống!
                   </td>
                 </tr>
-              ))}
+              ) : (
+                problems.map((p) => (
+                  <tr key={p.code} className="hover:bg-muted/20 transition">
+                    <td className="px-4 py-3.5 font-bold text-primary">{p.code}</td>
+                    <td className="px-4 py-3.5 font-sans font-medium text-foreground">{p.title}</td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <DifficultyBadge difficulty={p.difficulty || 'MEDIUM'} />
+                        {p.category?.slice(0, 1).map((cat) => (
+                          <span key={cat} className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full">
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-lg">
+                        <UserCheck className="w-3 h-3" /> {p.createdBy || 'Ban Chuyên Môn'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <span className="inline-flex items-center gap-1 text-emerald-500 font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {p.totalTests} tests
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <code className="text-[11px] bg-muted px-2 py-0.5 rounded border">
+                        {p.ioType === 'FILE' ? `freopen("${p.ioFileName}.inp")` : 'cin / cout'}
+                      </code>
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <span className="text-emerald-500 font-medium">✓ Đã nạp</span>
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <span className="text-emerald-500 font-medium">✓ Đã có code C++</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right font-sans space-x-2">
+                      <Link
+                        href={`/problems/${p.code}`}
+                        target="_blank"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
+                      >
+                        Mở bài
+                      </Link>
+                      <button
+                        onClick={() => handleOpenSubtaskModal(p)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs font-semibold transition"
+                      >
+                        <Sliders className="w-3 h-3" /> Cấu hình
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Subtask Configuration Modal / Dialog */}
-      {selectedProblem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-xl p-6 rounded-2xl border bg-background shadow-2xl space-y-6 animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-center border-b pb-3">
+      {/* PRE-UPLOAD PROBLEM SETTINGS MODAL */}
+      {isSettingsOpen && pendingFile && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-card border rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-6 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                  <Settings2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">Cấu Hình Thông Tin Bài Tập</h3>
+                  <p className="text-muted-foreground text-xs">Tùy chỉnh thông tin trước khi nạp file ZIP lên hệ thống</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setPendingFile(null);
+                }}
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Mã bài tập (Code)
+                  </label>
+                  <input
+                    type="text"
+                    value={settingCode}
+                    readOnly
+                    className="w-full px-3 py-2 rounded-xl border bg-muted/50 font-mono font-bold text-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Giáo viên phụ trách
+                  </label>
+                  <input
+                    type="text"
+                    value={settingCreatedBy}
+                    onChange={(e) => setSettingCreatedBy(e.target.value)}
+                    placeholder="Tên giáo viên..."
+                    className="w-full px-3 py-2 rounded-xl border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+
               <div>
-                <h3 className="text-lg font-bold text-foreground">
-                  Cấu Hình Thang Điểm Subtask: {selectedProblem.code}
+                <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Tiêu đề bài tập
+                </label>
+                <input
+                  type="text"
+                  value={settingTitle}
+                  onChange={(e) => setSettingTitle(e.target.value)}
+                  placeholder="Ví dụ: Xóa chữ số tạo số lớn nhất..."
+                  className="w-full px-3 py-2 rounded-xl border bg-background font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Độ khó
+                  </label>
+                  <select
+                    value={settingDifficulty}
+                    onChange={(e) => setSettingDifficulty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="EASY">Dễ (EASY)</option>
+                    <option value="MEDIUM">Trung bình (MEDIUM)</option>
+                    <option value="HARD">Khó (HARD)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Thể loại / Chủ đề
+                  </label>
+                  <select
+                    value={settingCategory}
+                    onChange={(e) => setSettingCategory(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {CATEGORY_PRESETS.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Giới hạn thời gian (ms)
+                  </label>
+                  <select
+                    value={settingTimeLimit}
+                    onChange={(e) => setSettingTimeLimit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="500">0.5 giây (500ms)</option>
+                    <option value="1000">1.0 giây (1000ms)</option>
+                    <option value="2000">2.0 giây (2000ms)</option>
+                    <option value="3000">3.0 giây (3000ms)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Giới hạn bộ nhớ (MB)
+                  </label>
+                  <select
+                    value={settingMemoryLimit}
+                    onChange={(e) => setSettingMemoryLimit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="128">128 MB</option>
+                    <option value="256">256 MB (Chuẩn HSG)</option>
+                    <option value="512">512 MB</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t bg-muted/20 flex items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setPendingFile(null);
+                }}
+                className="px-4 py-2 rounded-xl border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleConfirmUpload}
+                disabled={isUploading}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition shadow-md flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Xác nhận & Nạp bài
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subtask & Analytics Configuration Modal */}
+      {selectedProblem && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-card border rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-bold text-lg text-foreground flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-primary" /> Cấu hình Subtask & Thống kê
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                  Tổng điểm tối đa: {selectedProblem.maxScore} điểm ({selectedProblem.totalTests} test cases).
+                <p className="text-muted-foreground text-xs mt-0.5 font-mono">
+                  Mã bài: <strong className="text-primary">{selectedProblem.code}</strong> — {selectedProblem.title}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedProblem(null)}
-                className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-              {editSubtasks.map((sub, idx) => (
-                <div key={sub.id} className="p-3.5 rounded-xl border bg-muted/20 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <input
-                      type="text"
-                      value={sub.label}
-                      onChange={(e) => {
-                        const updated = [...editSubtasks];
-                        updated[idx].label = e.target.value;
-                        setEditSubtasks(updated);
-                      }}
-                      className="px-2 py-1 bg-background border rounded text-xs font-semibold w-2/3"
-                    />
-                    <button
-                      onClick={() => handleRemoveSubtask(idx)}
-                      className="text-rose-500 hover:text-rose-600 p-1"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Phạm vi test:</span>
-                      <input
-                        type="text"
-                        value={sub.testRange}
-                        onChange={(e) => {
-                          const updated = [...editSubtasks];
-                          updated[idx].testRange = e.target.value;
-                          setEditSubtasks(updated);
-                        }}
-                        className="mt-1 w-full px-2 py-1 bg-background border rounded text-xs font-mono"
-                      />
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+              {/* Analytics Section */}
+              {analytics && (
+                <div className="p-4 rounded-xl bg-muted/40 border space-y-3">
+                  <h4 className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+                    <BarChart3 className="w-4 h-4 text-primary" /> Thống kê bài nộp học sinh
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                    <div className="p-2.5 rounded-lg bg-card border">
+                      <div className="text-muted-foreground text-[10px]">Tổng lượt nộp</div>
+                      <div className="text-lg font-bold text-foreground mt-0.5">{analytics.totalSubmissions || 0}</div>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Số điểm:</span>
-                      <input
-                        type="number"
-                        value={sub.score}
-                        onChange={(e) => {
-                          const updated = [...editSubtasks];
-                          updated[idx].score = Number(e.target.value);
-                          setEditSubtasks(updated);
-                        }}
-                        className="mt-1 w-full px-2 py-1 bg-background border rounded text-xs font-mono font-bold text-primary"
-                      />
+                    <div className="p-2.5 rounded-lg bg-card border">
+                      <div className="text-muted-foreground text-[10px]">Số học sinh</div>
+                      <div className="text-lg font-bold text-foreground mt-0.5">{analytics.totalStudents || 0}</div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-card border">
+                      <div className="text-muted-foreground text-[10px]">Điểm trung bình</div>
+                      <div className="text-lg font-bold text-amber-500 mt-0.5">{analytics.avgScore || 0}đ</div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-card border">
+                      <div className="text-muted-foreground text-[10px]">Tỷ lệ AC 100đ</div>
+                      <div className="text-lg font-bold text-emerald-500 mt-0.5">{analytics.passRate || 0}%</div>
                     </div>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Subtask Editor */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground">Phân chia các Subtasks chấm điểm</span>
+                  <button
+                    onClick={handleAddSubtask}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-primary" /> Thêm Subtask
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {editSubtasks.map((sub, idx) => (
+                    <div key={sub.id || idx} className="p-3.5 rounded-xl border bg-muted/20 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                      <div className="flex-1 w-full space-y-1">
+                        <input
+                          type="text"
+                          value={sub.label}
+                          onChange={(e) => {
+                            const updated = [...editSubtasks];
+                            updated[idx].label = e.target.value;
+                            setEditSubtasks(updated);
+                          }}
+                          placeholder="Tên Subtask..."
+                          className="w-full px-2.5 py-1.5 rounded-lg border bg-background font-medium text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <input
+                          type="text"
+                          value={sub.testRange}
+                          onChange={(e) => {
+                            const updated = [...editSubtasks];
+                            updated[idx].testRange = e.target.value;
+                            setEditSubtasks(updated);
+                          }}
+                          placeholder="Phạm vi test (VD: Test 01 - Test 10)..."
+                          className="w-full px-2.5 py-1 rounded-lg border bg-background/60 text-[11px] focus:outline-none focus:ring-1 focus:ring-primary font-mono text-muted-foreground"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            value={sub.score}
+                            onChange={(e) => {
+                              const updated = [...editSubtasks];
+                              updated[idx].score = parseInt(e.target.value, 10) || 0;
+                              setEditSubtasks(updated);
+                            }}
+                            className="w-16 px-2 py-1.5 rounded-lg border bg-background text-center font-bold text-primary text-xs"
+                          />
+                          <span className="text-muted-foreground text-xs">điểm</span>
+                        </div>
+
+                        <button
+                          onClick={() => handleRemoveSubtask(idx)}
+                          className="p-1.5 rounded-lg border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex justify-between items-center pt-2 border-t">
-              <button
-                onClick={handleAddSubtask}
-                className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-              >
-                <Plus className="w-4 h-4" /> Thêm Subtask
-              </button>
+            <div className="p-4 border-t bg-muted/20 flex items-center justify-between shrink-0">
+              <div className="text-xs text-muted-foreground">
+                Tổng điểm Subtasks:{' '}
+                <strong className="text-primary font-mono">
+                  {editSubtasks.reduce((a, b) => a + (b.score || 0), 0)} / 100đ
+                </strong>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setSelectedProblem(null)}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-muted"
+                  className="px-4 py-2 rounded-xl border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
                 >
                   Hủy
                 </button>
                 <button
                   onClick={handleSaveSubtasks}
-                  className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold shadow-sm hover:bg-primary/90"
+                  className="px-5 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition shadow-md flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" /> Lưu cấu hình
                 </button>
               </div>
             </div>
-
-            {/* Analytics Panel */}
-            <div className="mt-6 p-4 bg-card border rounded-xl space-y-4">
-              <h3 className="font-bold flex items-center gap-2 text-foreground">
-                <BarChart3 className="w-4 h-4 text-primary" /> Thống kê bài {selectedProblem.code}
-              </h3>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <div className="p-2 border rounded bg-muted/20">
-                  <span className="text-muted-foreground block text-xs">Tổng bài nộp</span>
-                  <span className="font-bold">{analytics?.totalSubmissions || 0}</span>
-                </div>
-                <div className="p-2 border rounded bg-muted/20">
-                  <span className="text-muted-foreground block text-xs">Số học sinh</span>
-                  <span className="font-bold">{analytics?.uniqueStudents || 0}</span>
-                </div>
-                <div className="p-2 border rounded bg-muted/20">
-                  <span className="text-muted-foreground block text-xs">Điểm TB</span>
-                  <span className="font-bold">{analytics?.averageScore || 0}/100</span>
-                </div>
-                <div className="p-2 border rounded bg-muted/20">
-                  <span className="text-muted-foreground block text-xs">Tỷ lệ AC</span>
-                  <span className="font-bold">{analytics?.acRate || 0}%</span>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h4 className="text-sm font-semibold mb-2">Phân bố kết quả</h4>
-                  <div className="space-y-2">
-                    {['AC', 'WA', 'TLE', 'RTE', 'CE'].map((verdict) => (
-                      <div key={verdict} className="flex items-center text-xs">
-                        <span className="w-8 font-mono">{verdict}</span>
-                        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden mx-2">
-                          <div className={cn("h-full", verdict === 'AC' ? "bg-emerald-500" : verdict === 'WA' ? "bg-rose-500" : "bg-amber-500")} style={{ width: `${(analytics?.verdicts?.[verdict] || 0)}%` }} />
-                        </div>
-                        <span className="w-8 text-right">{analytics?.verdicts?.[verdict] || 0}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-semibold mb-2">Test cases sai nhiều nhất</h4>
-                  <ul className="text-xs space-y-1">
-                    {(analytics?.mostFailedTests || [{test: 3, count: 12}, {test: 7, count: 8}]).map((t: any) => (
-                      <li key={t.test} className="flex justify-between p-1 border-b last:border-0">
-                        <span>Test #{t.test}</span>
-                        <span className="text-rose-500 font-medium">{t.count} fails</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-              
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Bài nộp gần đây</h4>
-                <div className="overflow-hidden border rounded-lg">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-muted/50 border-b">
-                      <tr>
-                        <th className="p-2">Học sinh</th>
-                        <th className="p-2">Điểm</th>
-                        <th className="p-2">Kết quả</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {(analytics?.recentSubmissions || [{id: 1, name: 'Nguyễn Văn A', score: 100, verdict: 'AC'}, {id: 2, name: 'Trần B', score: 30, verdict: 'WA'}]).map((s: any) => (
-                        <tr key={s.id}>
-                          <td className="p-2">{s.name}</td>
-                          <td className="p-2 font-mono">{s.score}</td>
-                          <td className={cn("p-2 font-bold", s.verdict === 'AC' ? "text-emerald-500" : "text-rose-500")}>{s.verdict}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
           </div>
         </div>
       )}

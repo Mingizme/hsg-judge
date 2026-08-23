@@ -102,14 +102,35 @@ export class IngestionController {
       },
     }),
   )
-  async uploadZip(@UploadedFile() file: any) {
+  async uploadZip(
+    @UploadedFile() file: any,
+    @Body()
+    body?: {
+      title?: string;
+      difficulty?: string;
+      category?: string;
+      createdBy?: string;
+      timeLimitMs?: string;
+      memoryLimitMb?: string;
+    },
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
 
+    const options = {
+      title: body?.title,
+      difficulty: body?.difficulty,
+      category: body?.category,
+      createdBy: body?.createdBy,
+      timeLimitMs: body?.timeLimitMs ? parseInt(body.timeLimitMs, 10) : undefined,
+      memoryLimitMb: body?.memoryLimitMb ? parseInt(body.memoryLimitMb, 10) : undefined,
+    };
+
     const results = await this.ingestionService.ingestFromZip(
       file.buffer,
       file.originalname,
+      options,
     );
 
     const successful = results.filter((r) => r.success).length;
