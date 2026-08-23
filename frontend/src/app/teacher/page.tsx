@@ -63,12 +63,12 @@ const INITIAL_PROBLEMS: IngestedProblem[] = [
 export default function TeacherPortalPage() {
   const { user, profile, isTeacher, isLoading, upgradeToTeacher } = useAuth();
 
-  const [problems, setProblems] = useState<IngestedProblem[]>(INITIAL_PROBLEMS);
+  const [problems, setProblems] = useState<IngestedProblem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedProblem, setSelectedProblem] = useState<IngestedProblem | null>(null);
-  const [editSubtasks, setEditSubtasks] = useState(INITIAL_PROBLEMS[0].subtasks);
+  const [editSubtasks, setEditSubtasks] = useState<IngestedProblem['subtasks']>([]);
   const [analytics, setAnalytics] = useState<any>(null);
 
   // Upgrade form state
@@ -105,18 +105,19 @@ export default function TeacherPortalPage() {
       const res = await fetch(`${API_URL}/problems`);
       if (res.ok) {
         const json = await res.json();
-        const rawList = json.data?.items || json.data || json;
-        if (Array.isArray(rawList) && rawList.length > 0) {
+        // Backend trả về { problems: [...], pagination: {...} } hoặc bọc trong { data: {...} }
+        const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
+        if (Array.isArray(rawList)) {
           setProblems(rawList.map((p: any) => ({
             code: p.code,
-            title: p.title,
-            totalTests: p.totalTests || 24,
-            ioType: p.ioType || 'FILE',
-            ioFileName: p.code.toLowerCase(),
-            hasPdf: Boolean(p.pdfUrl || true),
+            title: p.title || p.code,
+            totalTests: p.totalTests || 0,
+            ioType: p.ioType || 'STANDARD',
+            ioFileName: p.ioFileName || p.code?.toLowerCase() || '',
+            hasPdf: Boolean(p.pdfUrl),
             hasSolution: true,
             maxScore: p.maxScore || 100,
-            subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : INITIAL_PROBLEMS[0].subtasks,
+            subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : [],
           })));
         }
       }

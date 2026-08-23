@@ -17,7 +17,7 @@ export default function ProblemsPage() {
       const res = await fetch(`${apiUrl}/problems`);
       if (res.ok) {
         const json = await res.json();
-        const rawList = json.data?.problems || json.data?.items || json.data || json;
+        const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
         if (Array.isArray(rawList)) {
           const mapped: Problem[] = rawList.map((p: any) => ({
             id: p.id || p.code,

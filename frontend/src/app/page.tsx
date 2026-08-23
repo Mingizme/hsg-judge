@@ -21,7 +21,7 @@ export default function Home() {
         const res = await fetch(`${apiUrl}/problems?limit=6`);
         if (res.ok) {
           const json = await res.json();
-          const rawList = json.data?.problems || json.data?.items || json.data || json;
+          const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
           if (Array.isArray(rawList)) {
             setProblems(
               rawList.map((p: any) => ({
