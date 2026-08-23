@@ -188,4 +188,85 @@ export class AuthService {
 
     return user;
   }
+
+  /**
+   * Get detailed student progress
+   */
+  async getStudentProgress(identifier: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ supabaseId: identifier }, { email: identifier.toLowerCase() }],
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const progress = await this.prisma.userProgress.findMany({
+      where: { userId: user.id },
+      include: { problem: true },
+    });
+
+    const submissions = await this.prisma.submission.findMany({
+      where: { userId: user.id },
+      select: { submittedAt: true },
+      orderBy: { submittedAt: 'desc' },
+    });
+
+    const totalSolved = progress.filter((p) => p.isSolved).length;
+    const totalAttempted = progress.length;
+    const totalSubmissions = submissions.length;
+
+    const solvedProblems = progress
+      .filter((p) => p.isSolved)
+      .map((p) => ({
+        code: p.problem.code,
+        title: p.problem.title,
+        bestScore: p.bestScore,
+        attempts: p.totalAttempts,
+      }));
+
+    const dates = [...new Set(submissions.map((s) => s.submittedAt.toISOString().split('T')[0]))];
+    
+    let streakDays = 0;
+    if (dates.length > 0) {
+      streakDays = 1;
+      let currentDate = new Date(dates[0]);
+      for (let i = 1; i < dates.length; i++) {
+        const prevDate = new Date(dates[i]);
+        const diffTime = Math.abs(currentDate.getTime() - prevDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          streakDays++;
+          currentDate = prevDate;
+        } else {
+          break;
+        }
+      }
+    }
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentSubs = submissions.filter((s) => s.submittedAt >= thirtyDaysAgo);
+    
+    const activityMap = new Map<string, number>();
+    recentSubs.forEach((s) => {
+      const dateStr = s.submittedAt.toISOString().split('T')[0];
+      activityMap.set(dateStr, (activityMap.get(dateStr) || 0) + 1);
+    });
+
+    const recentActivity = Array.from(activityMap.entries())
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      totalSolved,
+      totalAttempted,
+      totalSubmissions,
+      streakDays,
+      solvedProblems,
+      recentActivity,
+    };
+  }
 }

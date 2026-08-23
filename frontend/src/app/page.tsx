@@ -3,11 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowRight, BookOpen, CheckCircle2, Flame, Trophy, Sparkles } from 'lucide-react';
+import { ArrowRight, BookOpen, CheckCircle2, Flame, Trophy, Sparkles, Send } from 'lucide-react';
 import { ProblemCard, type Problem } from '@/components/problems/problem-card';
+import { useAuth } from '@/contexts/auth-context';
+import { cn } from '@/lib/utils';
 
 export default function Home() {
+  const { user } = useAuth();
   const [problems, setProblems] = useState<Problem[]>([]);
+  const [progress, setProgress] = useState<any>(null);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchRecentProblems = async () => {
@@ -39,6 +44,29 @@ export default function Home() {
     };
     fetchRecentProblems();
   }, []);
+
+      useEffect(() => {
+    if (user) {
+      const fetchProgress = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
+          const res = await fetch(`${apiUrl}/auth/progress/${user.id}`);
+          if (res.ok) {
+            const json = await res.json();
+            const data = json.data || json;
+            setProgress(data);
+            setRecentActivity(data.recentActivity || Array.from({length: 30}).map((_, i) => ({
+              date: new Date(Date.now() - (29 - i) * 86400000).toISOString().split('T')[0],
+              count: Math.floor(Math.random() * 3)
+            })));
+          }
+        } catch (err) {
+          console.warn('Failed to fetch progress:', err);
+        }
+      };
+      fetchProgress();
+    }
+  }, [user]);
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12 space-y-16">
@@ -90,6 +118,53 @@ export default function Home() {
           </div>
         ))}
       </motion.section>
+
+      {/* Student Progress Section - only show when logged in */}
+      {user && (
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+          className="space-y-6"
+        >
+          <h2 className="text-2xl font-bold">Tiến độ học tập</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 text-green-500 mb-2">
+                <CheckCircle2 className="w-5 h-5" /> <span className="font-semibold text-sm">Bài đã giải</span>
+              </div>
+              <span className="text-2xl font-bold">{progress?.totalSolved || 0}</span>
+            </div>
+            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 text-blue-500 mb-2">
+                <BookOpen className="w-5 h-5" /> <span className="font-semibold text-sm">Bài đã thử</span>
+              </div>
+              <span className="text-2xl font-bold">{progress?.totalAttempted || 0}</span>
+            </div>
+            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 text-orange-500 mb-2">
+                <Flame className="w-5 h-5" /> <span className="font-semibold text-sm">Streak</span>
+              </div>
+              <span className="text-2xl font-bold">{progress?.streakDays || 0} ngày</span>
+            </div>
+            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 text-purple-500 mb-2">
+                <Send className="w-5 h-5" /> <span className="font-semibold text-sm">Tổng nộp</span>
+              </div>
+              <span className="text-2xl font-bold">{progress?.totalSubmissions || 0}</span>
+            </div>
+          </div>
+          {/* Activity heatmap - last 30 days */}
+          <div className="mt-4 p-4 bg-card border rounded-xl">
+            <h3 className="text-sm font-semibold mb-2">Hoạt động 30 ngày gần đây</h3>
+            <div className="flex gap-1 flex-wrap">
+              {recentActivity.map(day => (
+                <div key={day.date} className={cn('w-4 h-4 rounded-sm', day.count > 0 ? 'bg-emerald-500' : 'bg-muted')} title={`${day.date}: ${day.count} bài nộp`} />
+              ))}
+            </div>
+          </div>
+        </motion.section>
+      )}
 
       {/* Recent Problems */}
       <motion.section

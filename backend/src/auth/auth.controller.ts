@@ -70,4 +70,17 @@ export class AuthController {
       data: user,
     };
   }
+
+  /**
+   * GET /api/auth/progress/:identifier
+   * Get detailed student progress
+   */
+  @Get('progress/:identifier')
+  async getStudentProgress(@Param('identifier') identifier: string) {
+    const progress = await this.authService.getStudentProgress(identifier);
+    return {
+      statusCode: 200,
+      data: progress,
+    };
+  }
 }

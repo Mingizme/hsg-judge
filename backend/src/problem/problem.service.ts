@@ -171,4 +171,132 @@ export class ProblemService {
       updatedAt: problem.updatedAt,
     };
   }
+
+  /**
+   * Tạo subtask mới
+   */
+  async createSubtask(problemCode: string, data: { label: string; description?: string; score: number; sortOrder: number; testCaseIds?: string[] }) {
+    const problem = await this.prisma.problem.findUnique({
+      where: { code: problemCode.toUpperCase() },
+    });
+    if (!problem) {
+      throw new NotFoundException(`Problem "${problemCode}" not found`);
+    }
+
+    return this.prisma.subtask.create({
+      data: {
+        problemId: problem.id,
+        label: data.label,
+        description: data.description,
+        score: data.score,
+        sortOrder: data.sortOrder,
+        ...(data.testCaseIds && data.testCaseIds.length > 0 && {
+          testCases: {
+            connect: data.testCaseIds.map((id) => ({ id })),
+          },
+        }),
+      },
+    });
+  }
+
+  /**
+   * Cập nhật subtask
+   */
+  async updateSubtask(subtaskId: string, data: { label?: string; description?: string; score?: number; sortOrder?: number; testCaseIds?: string[] }) {
+    return this.prisma.subtask.update({
+      where: { id: subtaskId },
+      data: {
+        ...(data.label !== undefined && { label: data.label }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.score !== undefined && { score: data.score }),
+        ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+        ...(data.testCaseIds && {
+          testCases: {
+            set: data.testCaseIds.map((id) => ({ id })),
+          },
+        }),
+      },
+    });
+  }
+
+  /**
+   * Xóa subtask
+   */
+  async deleteSubtask(subtaskId: string) {
+    return this.prisma.subtask.delete({
+      where: { id: subtaskId },
+    });
+  }
+
+  /**
+   * Lấy analytics của một bài tập
+   */
+  async getAnalytics(problemCode: string) {
+    const problem = await this.prisma.problem.findUnique({
+      where: { code: problemCode.toUpperCase() },
+    });
+    if (!problem) {
+      throw new NotFoundException(`Problem "${problemCode}" not found`);
+    }
+
+    const submissions = await this.prisma.submission.findMany({
+      where: { problemId: problem.id },
+      include: {
+        user: true,
+        results: true,
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+
+    const totalSubmissions = submissions.length;
+    const uniqueStudents = new Set(submissions.map((s) => s.userId)).size;
+
+    let totalScore = 0;
+    let passedCount = 0;
+    const verdicts: Record<string, number> = {};
+    const testCaseFailuresRecord: Record<number, number> = {};
+
+    submissions.forEach((s) => {
+      totalScore += s.score || 0;
+      if ((s.score || 0) >= 100) {
+        passedCount++;
+      }
+
+      const verdict = s.verdict || 'PENDING';
+      verdicts[verdict] = (verdicts[verdict] || 0) + 1;
+
+      if (s.results) {
+        s.results.forEach((tcr) => {
+          if (tcr.verdict !== 'AC') {
+            testCaseFailuresRecord[tcr.testNumber] = (testCaseFailuresRecord[tcr.testNumber] || 0) + 1;
+          }
+        });
+      }
+    });
+
+    const testCaseFailures = Object.entries(testCaseFailuresRecord)
+      .map(([testNumber, failCount]) => ({ testNumber: Number(testNumber), failCount }))
+      .sort((a, b) => b.failCount - a.failCount);
+
+    const verdictDistribution = Object.entries(verdicts).map(([verdict, count]) => ({
+      verdict,
+      count,
+    }));
+
+    return {
+      totalSubmissions,
+      totalStudents: uniqueStudents,
+      avgScore: totalSubmissions > 0 ? totalScore / totalSubmissions : 0,
+      passRate: totalSubmissions > 0 ? (passedCount / totalSubmissions) * 100 : 0,
+      testCaseFailures,
+      verdictDistribution,
+      recentSubmissions: submissions.slice(0, 10).map((s) => ({
+        userId: s.userId,
+        displayName: s.user?.displayName || 'Unknown',
+        score: s.score || 0,
+        verdict: s.verdict || 'PENDING',
+        submittedAt: s.submittedAt,
+      })),
+    };
+  }
 }
