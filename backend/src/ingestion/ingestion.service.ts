@@ -118,6 +118,23 @@ export class IngestionService {
         }
       }
 
+      // Trích xuất text từ PDF tự động nếu chưa có DOCX HTML
+      if (parsed.pdfPath && fs.existsSync(parsed.pdfPath) && !guideHtml) {
+        try {
+          const pdfParse = require('pdf-parse');
+          const pdfBuffer = fs.readFileSync(parsed.pdfPath);
+          const pdfData = await pdfParse(pdfBuffer);
+          if (pdfData.text && pdfData.text.trim().length > 0) {
+            const rawText = pdfData.text.replace(/\r\n/g, '\n');
+            const paragraphs = rawText.split('\n\n').filter((p: string) => p.trim().length > 0);
+            guideHtml = paragraphs.map((p: string) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
+            this.logger.log(`   📄 Extracted full text from PDF (${pdfData.text.length} chars)`);
+          }
+        } catch (pdfErr) {
+          this.logger.warn(`   ⚠️ PDF parse text error: ${pdfErr}`);
+        }
+      }
+
       // ── Step 2: Upsert Problem record ───────────
 
       const problem = await this.prisma.problem.upsert({

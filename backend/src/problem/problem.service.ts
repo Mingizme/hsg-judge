@@ -159,6 +159,8 @@ export class ProblemService {
       ioType: problem.ioType,
       ioFileName: problem.ioFileName,
       pdfUrl: problem.pdfUrl,
+      docxUrl: problem.docxUrl,
+      guideHtml: problem.guideHtml,
       timeLimitMs: problem.timeLimitMs,
       memoryLimitMb: problem.memoryLimitMb,
       totalTests: problem._count.testCases,
