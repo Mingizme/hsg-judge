@@ -1,0 +1,275 @@
+// ============================================
+// HSG Judge Platform — Prisma Schema
+// PostgreSQL + Supabase
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Enums ─────────────────────────────────────
+
+enum UserRole {
+  TEACHER
+  STUDENT
+}
+
+enum Difficulty {
+  EASY       // Dễ
+  MEDIUM     // Trung bình
+  HARD       // Khó
+}
+
+enum IOType {
+  STANDARD   // cin/cout
+  FILE       // freopen
+}
+
+enum Verdict {
+  PENDING    // Đang chờ chấm
+  AC         // Accepted
+  WA         // Wrong Answer
+  TLE        // Time Limit Exceeded
+  MLE        // Memory Limit Exceeded
+  RTE        // Runtime Error
+  CE         // Compilation Error
+  SE         // System Error
+}
+
+enum SubmissionStatus {
+  PENDING    // Đang chờ
+  JUDGING    // Đang chấm
+  COMPLETED  // Đã chấm xong
+  ERROR      // Lỗi hệ thống
+}
+
+// ── User ──────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  supabaseId    String    @unique @map("supabase_id")   // Liên kết Supabase Auth
+  email         String    @unique
+  displayName   String    @map("display_name")
+  avatarUrl     String?   @map("avatar_url")
+  role          UserRole  @default(STUDENT)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  submissions   Submission[]
+  progress      UserProgress[]
+
+  @@map("users")
+}
+
+// ── Category (Phân loại thuật toán) ───────────
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique                           // VD: "Dynamic Programming"
+  nameVi      String?  @map("name_vi")                   // VD: "Quy hoạch động"
+  slug        String   @unique                           // VD: "dynamic-programming"
+  description String?
+  color       String?                                    // HEX color cho badge
+  icon        String?                                    // Lucide icon name
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  problemTags ProblemTag[]
+
+  @@map("categories")
+}
+
+// ── Problem (Bài tập) ─────────────────────────
+
+model Problem {
+  id              String     @id @default(cuid())
+  code            String     @unique                     // Mã bài: "STRNUM", "SORTING"...
+  title           String                                 // Tiêu đề bài tập
+  description     String?    @db.Text                    // Mô tả ngắn (Markdown)
+  difficulty      Difficulty @default(MEDIUM)
+  ioType          IOType     @default(FILE) @map("io_type")
+  ioFileName      String?    @map("io_file_name")        // Tên file IO: "strnum" (không có .inp/.out)
+
+  // Giới hạn chấm
+  timeLimitMs     Int        @default(1000) @map("time_limit_ms")    // ms
+  memoryLimitMb   Int        @default(256) @map("memory_limit_mb")   // MB
+
+  // Tài liệu
+  pdfUrl          String?    @map("pdf_url")             // URL file PDF trên Supabase Storage
+  pdfStoragePath  String?    @map("pdf_storage_path")    // Path trong Supabase bucket
+
+  // Metadata
+  totalTests      Int        @default(0) @map("total_tests")
+  maxScore        Float      @default(100) @map("max_score")
+  isPublished     Boolean    @default(false) @map("is_published")
+  createdBy       String?    @map("created_by")          // Teacher user ID
+
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  testCases       TestCase[]
+  subtasks        Subtask[]
+  solutionCodes   SolutionCode[]
+  submissions     Submission[]
+  problemTags     ProblemTag[]
+  userProgress    UserProgress[]
+
+  @@index([code])
+  @@index([difficulty])
+  @@index([isPublished])
+  @@map("problems")
+}
+
+// ── ProblemTag (N-N: Problem ↔ Category) ──────
+
+model ProblemTag {
+  id         String   @id @default(cuid())
+  problemId  String   @map("problem_id")
+  categoryId String   @map("category_id")
+
+  problem    Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([problemId, categoryId])
+  @@map("problem_tags")
+}
+
+// ── Subtask (Nhóm test / Thang điểm) ─────────
+
+model Subtask {
+  id          String   @id @default(cuid())
+  problemId   String   @map("problem_id")
+  label       String                                     // VD: "Subtask 1", "N ≤ 100"
+  description String?                                    // Mô tả ràng buộc
+  score       Float                                      // Điểm cho subtask này
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  problem     Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  testCases   TestCase[]
+
+  @@index([problemId])
+  @@map("subtasks")
+}
+
+// ── TestCase ──────────────────────────────────
+
+model TestCase {
+  id           String   @id @default(cuid())
+  problemId    String   @map("problem_id")
+  subtaskId    String?  @map("subtask_id")               // Nullable: chưa assign subtask
+  testNumber   Int      @map("test_number")              // 1, 2, 3... (thứ tự)
+  inputData    String   @db.Text @map("input_data")      // Nội dung file .INP
+  outputData   String   @db.Text @map("output_data")     // Nội dung file .OUT (expected)
+  isSample     Boolean  @default(false) @map("is_sample") // Test mẫu (hiển thị cho HS)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  problem      Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  subtask      Subtask? @relation(fields: [subtaskId], references: [id], onDelete: SetNull)
+
+  // Kết quả chấm
+  submissionResults SubmissionResult[]
+
+  @@unique([problemId, testNumber])
+  @@index([problemId])
+  @@map("test_cases")
+}
+
+// ── SolutionCode (Code mẫu C++) ───────────────
+
+model SolutionCode {
+  id          String   @id @default(cuid())
+  problemId   String   @map("problem_id")
+  label       String                                     // VD: "Cách 1 - String", "Cách 2 - Stack"
+  fileName    String   @map("file_name")                 // VD: "strnum.cpp", "strnum_stack.cpp"
+  sourceCode  String   @db.Text @map("source_code")      // Nội dung file C++
+  language    String   @default("cpp")                   // Ngôn ngữ (mở rộng tương lai)
+  isPrimary   Boolean  @default(false) @map("is_primary") // Code mẫu chính (dùng cho Visualizer)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  problem     Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId])
+  @@map("solution_codes")
+}
+
+// ── Submission (Lần nộp bài) ──────────────────
+
+model Submission {
+  id            String           @id @default(cuid())
+  userId        String           @map("user_id")
+  problemId     String           @map("problem_id")
+  sourceCode    String           @db.Text @map("source_code")
+  language      String           @default("cpp")
+  status        SubmissionStatus @default(PENDING)
+  verdict       Verdict?                                 // Verdict tổng hợp (sau khi chấm xong)
+  score         Float?                                   // Tổng điểm đạt được
+  maxScore      Float?           @map("max_score")       // Tổng điểm tối đa
+  compilationLog String?         @db.Text @map("compilation_log")
+  executionTimeMs Int?           @map("execution_time_ms") // Thời gian chạy tối đa (ms)
+  memoryUsageKb   Int?           @map("memory_usage_kb")   // Memory sử dụng tối đa (KB)
+  submittedAt   DateTime         @default(now()) @map("submitted_at")
+  judgedAt      DateTime?        @map("judged_at")
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem       Problem          @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  results       SubmissionResult[]
+
+  @@index([userId])
+  @@index([problemId])
+  @@index([userId, problemId])
+  @@index([submittedAt])
+  @@map("submissions")
+}
+
+// ── SubmissionResult (Kết quả từng test) ──────
+
+model SubmissionResult {
+  id              String     @id @default(cuid())
+  submissionId    String     @map("submission_id")
+  testCaseId      String     @map("test_case_id")
+  testNumber      Int        @map("test_number")
+  verdict         Verdict    @default(PENDING)
+  executionTimeMs Int?       @map("execution_time_ms")
+  memoryUsageKb   Int?       @map("memory_usage_kb")
+  actualOutput    String?    @db.Text @map("actual_output")  // Output thực tế của HS
+  errorMessage    String?    @db.Text @map("error_message")  // Lỗi runtime/compile
+  score           Float      @default(0)
+  checkedAt       DateTime?  @map("checked_at")
+
+  submission      Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  testCase        TestCase   @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, testCaseId])
+  @@index([submissionId])
+  @@map("submission_results")
+}
+
+// ── UserProgress (Tiến độ học tập) ────────────
+
+model UserProgress {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  problemId       String   @map("problem_id")
+  bestScore       Float    @default(0) @map("best_score")
+  totalAttempts   Int      @default(0) @map("total_attempts")
+  isSolved        Boolean  @default(false) @map("is_solved")  // Đạt điểm tối đa
+  firstSolvedAt   DateTime? @map("first_solved_at")
+  lastAttemptAt   DateTime? @map("last_attempt_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem         Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, problemId])
+  @@index([userId])
+  @@index([problemId])
+  @@map("user_progress")
+}
