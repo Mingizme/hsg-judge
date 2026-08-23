@@ -6,13 +6,34 @@ import { cn } from '@/lib/utils';
 import { ProblemTabs } from './problem-tabs';
 import { CodeEditor } from './code-editor';
 import { ConsolePanel } from './console-panel';
+import { useAuth } from '@/contexts/auth-context';
 
 interface WorkspaceLayoutProps {
   problemCode: string;
   pdfUrl?: string;
 }
 
-const DEFAULT_STRNUM_CODE = `#include <bits/stdc++.h>
+// Khung code khởi đầu cho Học sinh (chưa có thuật toán)
+const STUDENT_STARTER_TEMPLATE = (probCode: string) => `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    
+    // Đọc ghi file theo chuẩn thi HSG nếu cần
+    // if (fopen("${probCode.toLowerCase()}.inp", "r")) {
+    //     freopen("${probCode.toLowerCase()}.inp", "r", stdin);
+    //     freopen("${probCode.toLowerCase()}.out", "w", stdout);
+    // }
+    
+    // Viết thuật toán của bạn tại đây...
+    
+    return 0;
+}`;
+
+// Lời giải mẫu hoàn chỉnh cho Giáo viên (sẵn sàng test & giảng bài)
+const TEACHER_SOLUTION_TEMPLATE = `#include <bits/stdc++.h>
 using namespace std;
 
 int n, k;
@@ -23,7 +44,7 @@ int main() {
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
     
-    // Đọc ghi file theo chuẩn HSG nếu cần
+    // Đọc ghi file theo chuẩn thi HSG nếu cần
     // if (fopen("strnum.inp", "r")) {
     //     freopen("strnum.inp", "r", stdin);
     //     freopen("strnum.out", "w", stdout);
@@ -57,7 +78,26 @@ int main() {
 }`;
 
 export function WorkspaceLayout({ problemCode, pdfUrl }: WorkspaceLayoutProps) {
-  const [code, setCode] = React.useState<string>(DEFAULT_STRNUM_CODE);
+  const { isTeacher, isLoading } = useAuth();
+  const hasUserEdited = React.useRef(false);
+
+  const getTemplate = React.useCallback(() => {
+    return isTeacher ? TEACHER_SOLUTION_TEMPLATE : STUDENT_STARTER_TEMPLATE(problemCode);
+  }, [isTeacher, problemCode]);
+
+  const [code, setCode] = React.useState<string>(getTemplate());
+
+  // Khi Auth tải xong vai trò Giáo viên / Học sinh, cập nhật mẫu code tương ứng
+  React.useEffect(() => {
+    if (!hasUserEdited.current && !isLoading) {
+      setCode(getTemplate());
+    }
+  }, [isTeacher, isLoading, getTemplate]);
+
+  const handleCodeChange = (val: string | undefined) => {
+    hasUserEdited.current = true;
+    setCode(val || '');
+  };
 
   return (
     <div className="flex w-full h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
@@ -67,7 +107,10 @@ export function WorkspaceLayout({ problemCode, pdfUrl }: WorkspaceLayoutProps) {
             <ProblemTabs
               pdfUrl={pdfUrl}
               problemCode={problemCode}
-              onApplyCode={(newCode) => setCode(newCode)}
+              onApplyCode={(newCode) => {
+                hasUserEdited.current = true;
+                setCode(newCode);
+              }}
             />
           </div>
         </Panel>
@@ -78,7 +121,12 @@ export function WorkspaceLayout({ problemCode, pdfUrl }: WorkspaceLayoutProps) {
           <PanelGroup direction="vertical">
             <Panel defaultSize={70} minSize={20}>
               <div className="h-full flex flex-col relative">
-                <CodeEditor value={code} onChange={(val) => setCode(val || '')} problemCode={problemCode} />
+                <CodeEditor
+                  value={code}
+                  onChange={handleCodeChange}
+                  problemCode={problemCode}
+                  isTeacher={isTeacher}
+                />
               </div>
             </Panel>
             
