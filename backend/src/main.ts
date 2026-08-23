@@ -10,10 +10,8 @@ async function bootstrap() {
 
   // Enable CORS for frontend
   app.enableCors({
-    origin: [
-      'http://localhost:3000',        // Next.js dev
-      'https://*.vercel.app',         // Vercel deployments
-    ],
+    origin: true, // Allow all origins for Vercel and local dev
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
 
@@ -27,8 +25,8 @@ async function bootstrap() {
   );
 
   const port = process.env.PORT || 4000;
-  await app.listen(port);
-  console.log(`\n🚀 HSG Judge Backend running on http://localhost:${port}/api`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`\n🚀 HSG Judge Backend running on port ${port} (0.0.0.0)`);
 }
 
 bootstrap();
