@@ -52,6 +52,9 @@ export function useSubmission() {
         setTotalTests(completeEvent.data.totalTests as number || 0);
         setPassedTests(completeEvent.data.passedTests as number || 0);
         setIsSubmitting(false);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('submission-completed'));
+        }
       }
     }
   }, [events]);

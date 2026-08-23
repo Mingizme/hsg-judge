@@ -59,6 +59,15 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
 
   useEffect(() => {
     fetchHistory();
+
+    const onSubmitted = () => {
+      fetchHistory();
+    };
+
+    window.addEventListener('submission-completed', onSubmitted);
+    return () => {
+      window.removeEventListener('submission-completed', onSubmitted);
+    };
   }, [fetchHistory]);
 
   const getVerdictBadge = (verdict?: string) => {

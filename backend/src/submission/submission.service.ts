@@ -96,19 +96,18 @@ export class SubmissionService {
         OR: [
           { id: userId },
           { supabaseId: userId },
-          { email: 'student@hsgjudge.local' },
+          { email: userId.toLowerCase() },
         ],
       },
     });
 
     if (!validUser) {
-      validUser = await this.prisma.user.upsert({
-        where: { email: 'student@hsgjudge.local' },
-        update: {},
-        create: {
-          supabaseId: userId || 'demo-student-supabase-id',
-          email: 'student@hsgjudge.local',
-          displayName: 'Học sinh',
+      const isEmail = userId.includes('@');
+      validUser = await this.prisma.user.create({
+        data: {
+          supabaseId: userId,
+          email: isEmail ? userId.toLowerCase() : `user-${userId.slice(0, 8)}@hsgjudge.local`,
+          displayName: isEmail ? userId.split('@')[0] : 'Thí sinh',
           role: 'STUDENT',
         },
       });
