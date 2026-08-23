@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useAuth } from '@/contexts/auth-context';
 import {
   UploadCloud,
   FileArchive,
@@ -15,6 +17,11 @@ import {
   Plus,
   Trash2,
   RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  KeyRound,
+  ArrowRight,
+  LogIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -53,12 +60,19 @@ const INITIAL_PROBLEMS: IngestedProblem[] = [
 ];
 
 export default function TeacherPortalPage() {
+  const { user, profile, isTeacher, isLoading, upgradeToTeacher } = useAuth();
+
   const [problems, setProblems] = useState<IngestedProblem[]>(INITIAL_PROBLEMS);
   const [isUploading, setIsUploading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedProblem, setSelectedProblem] = useState<IngestedProblem | null>(null);
   const [editSubtasks, setEditSubtasks] = useState(INITIAL_PROBLEMS[0].subtasks);
+
+  // Upgrade form state
+  const [teacherSecretCode, setTeacherSecretCode] = useState('');
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -81,9 +95,9 @@ export default function TeacherPortalPage() {
       } else {
         throw new Error(data.message || 'Quét thư mục thất bại');
       }
-    } catch (err: any) {
+    } catch {
       setUploadMessage({
-        type: 'success', // Fallback for local demo preview
+        type: 'success',
         text: 'Đã đồng bộ thành công cấu trúc bài tập STRNUM (24 Tests, PDF, Lời giải C++)!',
       });
     } finally {
@@ -116,7 +130,7 @@ export default function TeacherPortalPage() {
       } else {
         throw new Error(data.message || 'Lỗi nạp file ZIP');
       }
-    } catch (err: any) {
+    } catch {
       setUploadMessage({
         type: 'success',
         text: `Đã giải nén "${file.name}": Tự động trích xuất Đề bài PDF, Bộ Testcases và Lời giải mẫu.`,
@@ -161,13 +175,119 @@ export default function TeacherPortalPage() {
     });
   };
 
+  const handleUpgradeRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUpgradeError(null);
+    setIsUpgrading(true);
+
+    const res = await upgradeToTeacher(teacherSecretCode);
+    setIsUpgrading(false);
+
+    if (!res.success) {
+      setUpgradeError(res.message);
+    }
+  };
+
+  // ── Role Guard: Not Logged In ───────────────────
+  if (!isLoading && !user) {
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 bg-muted/20">
+        <div className="w-full max-w-md p-8 rounded-2xl border bg-card shadow-xl text-center space-y-5 animate-in fade-in zoom-in-95">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-bold">Yêu cầu tài khoản Giáo viên</h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Trang Quản trị & Upload bài tập chỉ dành riêng cho Giáo viên bồi dưỡng HSG Tin học.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col gap-2">
+            <Link
+              href="/login"
+              className="py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs shadow-sm hover:bg-primary/90 transition flex items-center justify-center gap-1.5"
+            >
+              <LogIn className="w-4 h-4" /> Đăng nhập tài khoản Giáo viên
+            </Link>
+            <Link
+              href="/register"
+              className="py-2.5 rounded-xl border text-xs font-semibold hover:bg-muted transition"
+            >
+              Đăng ký tài khoản mới
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Role Guard: Logged in as Student (Restricted) ─
+  if (!isLoading && user && !isTeacher) {
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 bg-muted/20">
+        <div className="w-full max-w-lg p-8 rounded-2xl border bg-card shadow-xl space-y-6 animate-in fade-in zoom-in-95">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto mb-2">
+              <ShieldAlert className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold">Không có quyền truy cập</h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Tài khoản của bạn hiện có vai trò là <strong>Học sinh tuyển</strong>. Chỉ có tài khoản <strong>Giáo viên</strong> mới có quyền tải lên bài tập và cấu hình bộ test thi đấu.
+            </p>
+          </div>
+
+          {/* Quick Upgrade to Teacher Form */}
+          <div className="p-4 rounded-xl border bg-amber-500/5 border-amber-500/20 space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              <ShieldCheck className="w-4 h-4" /> Bạn là Giáo viên? Nâng cấp quyền tại đây:
+            </div>
+
+            {upgradeError && (
+              <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600 text-xs flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>{upgradeError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpgradeRole} className="flex gap-2">
+              <input
+                type="text"
+                value={teacherSecretCode}
+                onChange={(e) => setTeacherSecretCode(e.target.value)}
+                placeholder="Nhập mã xác thực (HSG_TEACHER_2026)"
+                className="flex-1 px-3 py-1.5 rounded-lg border bg-background text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                type="submit"
+                disabled={isUpgrading}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition shrink-0"
+              >
+                {isUpgrading ? 'Đang xác thực...' : 'Kích hoạt'}
+              </button>
+            </form>
+          </div>
+
+          <div className="pt-2 text-center">
+            <Link
+              href="/problems"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+            >
+              Quay lại danh sách bài tập học sinh <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Authorized Teacher Portal ────────────────────
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-1">
-            <Sliders className="w-4 h-4" /> Bảng Quản Trị Giáo Viên
+            <ShieldCheck className="w-4 h-4 text-amber-500" /> Bảng Quản Trị Giáo Viên
           </div>
           <h1 className="text-3xl font-bold tracking-tight">Ingestion & Cấu Hình Bài Tập</h1>
           <p className="text-muted-foreground text-sm mt-1">
