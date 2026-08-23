@@ -7,7 +7,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as AdmZip from 'adm-zip';
+const AdmZip = require('adm-zip');
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
 import {

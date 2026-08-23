@@ -102,7 +102,7 @@ export class IngestionController {
       },
     }),
   )
-  async uploadZip(@UploadedFile() file: Express.Multer.File) {
+  async uploadZip(@UploadedFile() file: any) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
