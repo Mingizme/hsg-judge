@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSSE } from './use-sse';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -15,6 +15,11 @@ export interface TestResult {
 
 export function useSubmission() {
   const { user } = useAuth();
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
@@ -47,13 +52,16 @@ export function useSubmission() {
       const completeEvent = events.find((e) => e.type === 'complete');
       if (completeEvent) {
         setVerdict(completeEvent.data.verdict as string);
-        setScore(completeEvent.data.score as number || 0);
-        setMaxScore(completeEvent.data.maxScore as number || 100);
-        setTotalTests(completeEvent.data.totalTests as number || 0);
-        setPassedTests(completeEvent.data.passedTests as number || 0);
+        setScore((completeEvent.data.score as number) || 0);
+        setMaxScore((completeEvent.data.maxScore as number) || 100);
+        setTotalTests((completeEvent.data.totalTests as number) || 0);
+        setPassedTests((completeEvent.data.passedTests as number) || 0);
         setIsSubmitting(false);
+
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('submission-completed'));
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('submission-completed'));
+          }, 300);
         }
       }
     }
@@ -69,6 +77,9 @@ export function useSubmission() {
     try {
       const apiUrl =
         process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
+      const currentUser = userRef.current;
+      const targetUserId = currentUser?.id || currentUser?.email || undefined;
+
       const response = await fetch(`${apiUrl}/submissions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,7 +87,7 @@ export function useSubmission() {
           problemCode,
           sourceCode: code,
           language: 'cpp',
-          userId: user?.id || user?.email || undefined,
+          userId: targetUserId,
         }),
       });
 
@@ -106,35 +117,33 @@ export function useSubmission() {
           problemCode,
           sourceCode: code,
           customInput: input,
-          language: 'cpp',
         }),
       });
-      const resData = await response.json();
+
+      const data = await response.json();
       setIsRunning(false);
-      return resData.data || resData;
+      return data.data;
     } catch (error) {
-      console.error('Run error:', error);
+      console.error('Run custom error:', error);
       setIsRunning(false);
       return {
         stdout: '',
-        stderr: 'Lỗi kết nối tới Judge Engine',
-        executionTimeMs: 0,
+        stderr: 'Lỗi thực thi kiểm thử cục bộ',
+        exitCode: 1,
       };
     }
   }, []);
 
   const reset = useCallback(() => {
-    setIsSubmitting(false);
-    setIsRunning(false);
     setSubmissionId(null);
     setResults([]);
     setVerdict(null);
     setScore(0);
+    setIsSubmitting(false);
+    setIsRunning(false);
   }, []);
 
   return {
-    submitCode,
-    runCustom,
     isSubmitting,
     isRunning,
     submissionId,
@@ -144,9 +153,11 @@ export function useSubmission() {
     maxScore,
     totalTests,
     passedTests,
-    events,
-    latestResult,
+    isConnected,
     isComplete,
+    latestResult,
+    submitCode,
+    runCustom,
     reset,
   };
 }
