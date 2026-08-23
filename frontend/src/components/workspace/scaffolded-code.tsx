@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CheckCircle2, AlertCircle, ArrowRight, Lightbulb, Copy, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { CheckCircle2, AlertCircle, ArrowRight, Lightbulb, Copy, RefreshCw, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ScaffoldLevel {
@@ -19,7 +19,99 @@ interface ScaffoldLevel {
   codeTemplate: string; // [BLANK_1], [BLANK_2]
 }
 
-const SCAFFOLD_LEVELS: ScaffoldLevel[] = [
+const TAOXAU_LEVELS: ScaffoldLevel[] = [
+  {
+    id: 1,
+    title: 'Mức độ 1: Kiểm tra ký tự là chữ số',
+    difficulty: 'Dễ',
+    description: 'Điền điều kiện kiểm tra ký tự c có phải là chữ số từ 0 đến 9 hay không.',
+    blanks: [
+      {
+        id: 'BLANK_1',
+        label: 'Điều kiện ký tự số',
+        correctAnswer: [
+          "c >= '0' && c <= '9'",
+          "c>='0' && c<='9'",
+          "c >= '0' && c <= '9'",
+          "isdigit(c)",
+          "isdigit(c) != 0",
+          "'0' <= c && c <= '9'",
+        ],
+        hint: "Ký tự chữ số nằm trong đoạn từ '0' đến '9' hoặc dùng hàm isdigit(c).",
+        placeholder: "c >= '0' && c <= '9'",
+      },
+      {
+        id: 'BLANK_2',
+        label: 'Thêm ký tự vào xâu kết quả',
+        correctAnswer: ['res += c', 'res += c;', 'res.push_back(c)', 'res.push_back(c);', 'res = res + c'],
+        hint: 'Nối ký tự c vào cuối xâu kết quả res.',
+        placeholder: 'res += c',
+      },
+    ],
+    codeTemplate: `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+
+    string s, res = "";
+    if (getline(cin, s)) {
+        for (char c : s) {
+            // [1] Kiểm tra ký tự là chữ số
+            if ([BLANK_1]) {
+                // [2] Nối vào xâu kết quả
+                [BLANK_2];
+            }
+        }
+        cout << res;
+    }
+    return 0;
+}`,
+  },
+  {
+    id: 2,
+    title: 'Mức độ 2: Xử lý tệp & Đọc cả dòng',
+    difficulty: 'Trung bình',
+    description: 'Hoàn thiện hàm đọc xâu chứa khoảng trắng và xuất kết quả.',
+    blanks: [
+      {
+        id: 'BLANK_1',
+        label: 'Đọc cả dòng xâu s',
+        correctAnswer: ['getline(cin, s)', 'getline(cin,s)', 'cin >> s'],
+        hint: 'Sử dụng hàm getline(cin, s) để đọc cả khoảng trắng.',
+        placeholder: 'getline(cin, s)',
+      },
+      {
+        id: 'BLANK_2',
+        label: 'In xâu kết quả',
+        correctAnswer: ['cout << res', 'cout<<res', 'cout << res << endl', 'printf("%s", res.c_str())'],
+        hint: 'In biến kết quả res ra màn hình.',
+        placeholder: 'cout << res',
+      },
+    ],
+    codeTemplate: `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+
+    string s, res = "";
+    if ([BLANK_1]) {
+        for (char c : s) {
+            if (c >= '0' && c <= '9') {
+                res += c;
+            }
+        }
+        [BLANK_2];
+    }
+    return 0;
+}`,
+  },
+];
+
+const STRNUM_LEVELS: ScaffoldLevel[] = [
   {
     id: 1,
     title: 'Mức độ 1: Điều kiện duy trì Stack đơn điệu',
@@ -99,10 +191,17 @@ int main() {
       },
       {
         id: 'BLANK_2',
-        label: 'Giảm số lần xóa',
-        correctAnswer: ['k--', '--k', 'k = k - 1', 'k-=1'],
-        hint: 'Mỗi lần st.pop() tương đương một lần xóa.',
-        placeholder: 'k--',
+        label: 'Lấy đỉnh Stack',
+        correctAnswer: ['st.top()', 'st.top ()'],
+        hint: 'Hàm lấy giá trị phần tử ở đỉnh của std::stack.',
+        placeholder: 'st.top()',
+      },
+      {
+        id: 'BLANK_3',
+        label: 'Xóa đỉnh Stack',
+        correctAnswer: ['st.pop()', 'st.pop ()', 'st.pop();'],
+        hint: 'Hàm xóa phần tử ở đỉnh của std::stack.',
+        placeholder: 'st.pop()',
       },
     ],
     codeTemplate: `#include <bits/stdc++.h>
@@ -124,15 +223,16 @@ int main() {
         st.push(s[i]);
     }
 
-    // [2] Xử lý trường hợp chuỗi đã giảm dần nhưng k vẫn còn
+    // [2] Xóa nốt các phần tử cuối nếu k vẫn còn > 0
     while ([BLANK_1]) {
-        st.pop();
-        [BLANK_2];
+        [BLANK_3];
+        k--;
     }
 
+    // [3] Trích xuất kết quả từ Stack
     vector<char> ans;
     while (!st.empty()) {
-        ans.push_back(st.top());
+        ans.push_back([BLANK_2]);
         st.pop();
     }
     for (int i = ans.size() - 1; i >= 0; i--) cout << ans[i];
@@ -143,84 +243,102 @@ int main() {
 ];
 
 interface ScaffoldedCodeProps {
-  problemCode?: string;
+  problemCode: string;
   onApplyCode?: (code: string) => void;
 }
 
-export function ScaffoldedCode({ problemCode = 'STRNUM', onApplyCode }: ScaffoldedCodeProps) {
-  const [selectedLevelId, setSelectedLevelId] = useState(1);
-  const [inputs, setInputs] = useState<Record<string, string>>({});
-  const [checked, setChecked] = useState(false);
-  const [copied, setCopied] = useState(false);
+export function ScaffoldedCode({ problemCode, onApplyCode }: ScaffoldedCodeProps) {
+  const levels = useMemo(() => {
+    if (problemCode.toUpperCase() === 'TAOXAU') {
+      return TAOXAU_LEVELS;
+    }
+    return STRNUM_LEVELS;
+  }, [problemCode]);
 
-  const currentLevel = SCAFFOLD_LEVELS.find((l) => l.id === selectedLevelId) || SCAFFOLD_LEVELS[0];
+  const [activeLevelId, setActiveLevelId] = useState<number>(1);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [validation, setValidation] = useState<Record<string, boolean | null>>({});
+  const [showHints, setShowHints] = useState<Record<string, boolean>>({});
+  const [applied, setApplied] = useState(false);
 
-  const handleInputChange = (blankId: string, value: string) => {
-    setInputs((prev) => ({ ...prev, [blankId]: value }));
-    setChecked(false);
+  const activeLevel = levels.find((l) => l.id === activeLevelId) || levels[0];
+
+  const handleAnswerChange = (blankId: string, val: string) => {
+    setAnswers((prev) => ({ ...prev, [blankId]: val }));
+    setValidation((prev) => ({ ...prev, [blankId]: null }));
+    setApplied(false);
   };
-
-  const isBlankCorrect = (blankId: string) => {
-    const blank = currentLevel.blanks.find((b) => b.id === blankId);
-    if (!blank) return false;
-    const val = (inputs[blankId] || '').trim();
-    return blank.correctAnswer.some((ans) => ans.toLowerCase().replace(/\s+/g, '') === val.toLowerCase().replace(/\s+/g, ''));
-  };
-
-  const allCorrect = currentLevel.blanks.every((b) => isBlankCorrect(b.id));
-
-  // Generate full code with blanks replaced
-  const generatedCode = React.useMemo(() => {
-    let code = currentLevel.codeTemplate;
-    currentLevel.blanks.forEach((b) => {
-      const val = inputs[b.id]?.trim() || b.placeholder;
-      code = code.replace(`[${b.id}]`, val);
-    });
-    return code;
-  }, [currentLevel, inputs]);
 
   const handleCheck = () => {
-    setChecked(true);
+    const newValidation: Record<string, boolean> = {};
+    activeLevel.blanks.forEach((b) => {
+      const userAns = (answers[b.id] || '').trim().replace(/\s+/g, ' ');
+      const isCorrect = b.correctAnswer.some(
+        (ans) => ans.trim().replace(/\s+/g, ' ').toLowerCase() === userAns.toLowerCase()
+      );
+      newValidation[b.id] = isCorrect;
+    });
+    setValidation(newValidation);
   };
 
   const handleReset = () => {
-    setInputs({});
-    setChecked(false);
+    setAnswers({});
+    setValidation({});
+    setShowHints({});
+    setApplied(false);
   };
 
-  const handleCopyOrApply = () => {
+  const toggleHint = (blankId: string) => {
+    setShowHints((prev) => ({ ...prev, [blankId]: !prev[blankId] }));
+  };
+
+  const generatedCode = useMemo(() => {
+    let result = activeLevel.codeTemplate;
+    activeLevel.blanks.forEach((b) => {
+      const val = answers[b.id] || `/* [Chỗ trống]: ${b.label} */`;
+      result = result.split(`[${b.id}]`).join(val);
+    });
+    return result;
+  }, [activeLevel, answers]);
+
+  const allCorrect =
+    activeLevel.blanks.length > 0 &&
+    activeLevel.blanks.every((b) => validation[b.id] === true);
+
+  const handleApplyToEditor = () => {
     if (onApplyCode) {
-      onApplyCode(generatedCode);
-    } else {
-      navigator.clipboard.writeText(generatedCode);
+      let codeToApply = activeLevel.codeTemplate;
+      activeLevel.blanks.forEach((b) => {
+        const val = answers[b.id] || b.correctAnswer[0];
+        codeToApply = codeToApply.split(`[${b.id}]`).join(val);
+      });
+      onApplyCode(codeToApply);
+      setApplied(true);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-background overflow-y-auto p-4 gap-4">
-      {/* Top Level Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border bg-muted/20 shrink-0">
+    <div className="flex flex-col h-full bg-background overflow-hidden text-xs">
+      {/* Top Header Bar */}
+      <div className="border-b bg-muted/40 px-4 py-2 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase">Mức độ hỗ trợ:</span>
+          <span className="font-semibold text-muted-foreground">MỨC ĐỘ HỖ TRỢ:</span>
           <div className="flex gap-1.5">
-            {SCAFFOLD_LEVELS.map((level) => (
+            {levels.map((lvl) => (
               <button
-                key={level.id}
+                key={lvl.id}
                 onClick={() => {
-                  setSelectedLevelId(level.id);
-                  setInputs({});
-                  setChecked(false);
+                  setActiveLevelId(lvl.id);
+                  handleReset();
                 }}
                 className={cn(
-                  'px-3 py-1 text-xs font-medium rounded-lg transition-all',
-                  selectedLevelId === level.id
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-background hover:bg-muted text-muted-foreground'
+                  'px-2.5 py-1 rounded-lg font-semibold transition shadow-sm',
+                  activeLevelId === lvl.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card border hover:bg-muted text-foreground'
                 )}
               >
-                Mức {level.id} ({level.difficulty})
+                Mức {lvl.id} ({lvl.difficulty})
               </button>
             ))}
           </div>
@@ -229,103 +347,129 @@ export function ScaffoldedCode({ problemCode = 'STRNUM', onApplyCode }: Scaffold
         <div className="flex items-center gap-2">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition"
+            title="Làm lại từ đầu"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Làm lại
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Làm lại</span>
           </button>
+
           <button
-            onClick={handleCopyOrApply}
-            className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition shadow-sm"
+            onClick={handleApplyToEditor}
+            className={cn(
+              'flex items-center gap-1 px-3 py-1 rounded-lg font-semibold transition shadow-sm',
+              applied
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90'
+            )}
           >
-            <Copy className="w-3.5 h-3.5" />
-            {copied ? 'Đã chuyển vào IDE!' : 'Chuyển vào IDE'}
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>{applied ? '✓ Đã chuyển vào IDE' : 'Chuyển vào IDE'}</span>
           </button>
         </div>
       </div>
 
-      {/* Level Description & Pedagogical Note */}
-      <div className="p-3.5 rounded-xl border bg-card/60 space-y-1.5">
-        <div className="text-sm font-bold text-foreground flex items-center gap-2">
-          <span>{currentLevel.title}</span>
-        </div>
-        <p className="text-xs text-muted-foreground">{currentLevel.description}</p>
-      </div>
-
-      {/* Interactive Blank Inputs Form */}
-      <div className="p-4 rounded-xl border bg-card/60 space-y-3">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-          <Lightbulb className="w-4 h-4 text-amber-500" />
-          <span>Điền logic vào các chỗ trống:</span>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        {/* Level Overview Box */}
+        <div className="p-4 rounded-2xl border bg-card/60 shadow-sm space-y-1.5">
+          <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            {activeLevel.title}
+          </h3>
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {activeLevel.description}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {currentLevel.blanks.map((b, idx) => {
-            const isCorrect = checked && isBlankCorrect(b.id);
-            const isWrong = checked && !isBlankCorrect(b.id);
+        {/* Form Blanks Input */}
+        <div className="p-4 rounded-2xl border bg-card shadow-sm space-y-4">
+          <div className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+            <span>Điền logic vào các chỗ trống:</span>
+          </div>
 
-            return (
-              <div key={b.id} className="space-y-1.5 p-3 rounded-lg bg-background border">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-muted-foreground">
-                    Vị trí [{idx + 1}]: <strong className="text-foreground">{b.label}</strong>
-                  </span>
-                  {checked && (
-                    <span>
-                      {isCorrect ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-rose-500" />
-                      )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {activeLevel.blanks.map((blank, idx) => {
+              const status = validation[blank.id];
+              return (
+                <div
+                  key={blank.id}
+                  className={cn(
+                    'p-3 rounded-xl border bg-muted/20 space-y-2 transition-all',
+                    status === true && 'border-emerald-500 bg-emerald-950/20',
+                    status === false && 'border-destructive bg-destructive/10'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground text-[11px]">
+                      Vị trí [{idx + 1}]: {blank.label}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleHint(blank.id)}
+                      className="text-amber-500 hover:text-amber-400 text-[10px] flex items-center gap-0.5"
+                    >
+                      <Lightbulb className="w-3 h-3" /> Gợi ý
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={answers[blank.id] || ''}
+                    onChange={(e) => handleAnswerChange(blank.id, e.target.value)}
+                    placeholder={blank.placeholder}
+                    className="w-full px-2.5 py-1.5 rounded-lg border bg-background font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+
+                  {showHints[blank.id] && (
+                    <p className="text-[11px] text-amber-400 bg-amber-950/30 p-2 rounded border border-amber-500/30 leading-tight">
+                      💡 {blank.hint}
+                    </p>
+                  )}
+
+                  {status === true && (
+                    <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Chính xác!
+                    </p>
+                  )}
+
+                  {status === false && (
+                    <p className="text-[11px] text-destructive font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" /> Chưa đúng, hãy thử lại!
+                    </p>
                   )}
                 </div>
+              );
+            })}
+          </div>
 
-                <input
-                  type="text"
-                  value={inputs[b.id] || ''}
-                  onChange={(e) => handleInputChange(b.id, e.target.value)}
-                  placeholder={b.placeholder}
-                  className={cn(
-                    'w-full px-3 py-1.5 rounded-md border font-mono text-xs bg-muted/20 focus:outline-none focus:ring-1 focus:ring-primary',
-                    isCorrect && 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                    isWrong && 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                  )}
-                />
+          <div className="pt-2 flex items-center gap-3">
+            <button
+              onClick={handleCheck}
+              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition shadow-sm"
+            >
+              Kiểm tra đáp án
+            </button>
 
-                {isWrong && (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 italic">
-                    Gợi ý: {b.hint}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+            {allCorrect && (
+              <span className="text-emerald-500 font-semibold text-xs flex items-center gap-1.5 animate-in fade-in">
+                🎉 Tuyệt vời! Tất cả các chỗ trống đã điền chính xác. Hãy bấm &quot;Chuyển vào IDE&quot; để làm bài.
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="pt-2 flex items-center justify-between">
-          <button
-            onClick={handleCheck}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-xs hover:bg-primary/90 transition shadow-sm"
-          >
-            <CheckCircle2 className="w-4 h-4" /> Kiểm tra đáp án
-          </button>
-
-          {checked && allCorrect && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="w-4 h-4" />
-              Xuất sắc! Bạn đã điền chính xác toàn bộ logic.
-            </div>
-          )}
+        {/* Code Preview Box */}
+        <div className="p-4 rounded-2xl border bg-zinc-950 shadow-inner space-y-2">
+          <div className="flex items-center justify-between text-zinc-400 text-[11px]">
+            <span>Xem trước mã nguồn C++ hoàn chỉnh</span>
+            <span className="font-mono text-[10px] text-zinc-500">Auto-updated</span>
+          </div>
+          <pre className="p-3 bg-black/40 rounded-xl font-mono text-xs text-zinc-200 overflow-x-auto leading-relaxed">
+            <code>{generatedCode}</code>
+          </pre>
         </div>
-      </div>
-
-      {/* Code Preview Box */}
-      <div className="p-4 rounded-xl border bg-zinc-950 text-zinc-100 font-mono text-xs leading-relaxed overflow-x-auto space-y-2">
-        <div className="text-[11px] text-zinc-400 border-b border-zinc-800 pb-2 flex items-center justify-between">
-          <span>Xem trước mã nguồn C++ hoàn chỉnh</span>
-          <span className="text-[10px] text-zinc-500">Auto-updated</span>
-        </div>
-        <pre className="text-zinc-200">{generatedCode}</pre>
       </div>
     </div>
   );
