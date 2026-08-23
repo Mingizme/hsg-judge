@@ -34,77 +34,67 @@ int main() {
     return 0;
 }`;
 
-// Lời giải mẫu hoàn chỉnh cho Giáo viên (sẵn sàng test & giảng bài)
-const TEACHER_SOLUTION_TEMPLATE = `#include <bits/stdc++.h>
-using namespace std;
-
-int n, k;
-string s;
-stack<char> st;
-
-int main() {
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    
-    // Đọc ghi file theo chuẩn thi HSG nếu cần
-    // if (fopen("strnum.inp", "r")) {
-    //     freopen("strnum.inp", "r", stdin);
-    //     freopen("strnum.out", "w", stdout);
-    // }
-    
-    if (cin >> n >> k >> s) {
-        for (int i = 0; i < n; i++) {
-            while (k > 0 && !st.empty() && s[i] > st.top()) {
-                st.pop();
-                k--;
-            }
-            st.push(s[i]);
-        }
-        
-        while (k > 0 && !st.empty()) {
-            st.pop();
-            k--;
-        }
-        
-        vector<char> ans;
-        while (!st.empty()) {
-            ans.push_back(st.top());
-            st.pop();
-        }
-        for (int i = ans.size() - 1; i >= 0; i--) {
-            cout << ans[i];
-        }
-    }
-    
-    return 0;
-}`;
-
 export function WorkspaceLayout({
   problemCode,
-  pdfUrl,
-  docxUrl,
-  guideHtml,
+  pdfUrl: propPdfUrl,
+  docxUrl: propDocxUrl,
+  guideHtml: propGuideHtml,
 }: WorkspaceLayoutProps) {
   const { isTeacher, isLoading } = useAuth();
   const hasUserEdited = React.useRef(false);
 
+  const [problemData, setProblemData] = React.useState<any>(null);
+  const [modelSolution, setModelSolution] = React.useState<string>('');
+
+  const API_URL =
+    process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
+
+  // Tải chi tiết bài tập từ Backend (Lời giải mẫu, HTML hướng dẫn, PDF...)
+  React.useEffect(() => {
+    const fetchDetail = async () => {
+      try {
+        const res = await fetch(`${API_URL}/problems/${problemCode}`);
+        if (res.ok) {
+          const json = await res.json();
+          const p = json.data || json;
+          setProblemData(p);
+          if (p.solutions && p.solutions.length > 0) {
+            const primary = p.solutions.find((s: any) => s.isPrimary) || p.solutions[0];
+            setModelSolution(primary.sourceCode || '');
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch problem detail:', err);
+      }
+    };
+    fetchDetail();
+  }, [problemCode, API_URL]);
+
   const getTemplate = React.useCallback(() => {
-    return isTeacher ? TEACHER_SOLUTION_TEMPLATE : STUDENT_STARTER_TEMPLATE(problemCode);
-  }, [isTeacher, problemCode]);
+    if (isTeacher && modelSolution) {
+      return modelSolution;
+    }
+    return STUDENT_STARTER_TEMPLATE(problemCode);
+  }, [isTeacher, modelSolution, problemCode]);
 
-  const [code, setCode] = React.useState<string>(getTemplate());
+  const [code, setCode] = React.useState<string>(STUDENT_STARTER_TEMPLATE(problemCode));
 
-  // Khi Auth tải xong vai trò Giáo viên / Học sinh, cập nhật mẫu code tương ứng
+  // Khi Auth hoặc Lời giải mẫu tải xong, cập nhật code tương ứng
   React.useEffect(() => {
     if (!hasUserEdited.current && !isLoading) {
       setCode(getTemplate());
     }
-  }, [isTeacher, isLoading, getTemplate]);
+  }, [isTeacher, isLoading, modelSolution, getTemplate]);
 
   const handleCodeChange = (val: string | undefined) => {
     hasUserEdited.current = true;
     setCode(val || '');
   };
+
+  const finalPdfUrl = problemData?.pdfUrl || propPdfUrl;
+  const finalDocxUrl = problemData?.docxUrl || propDocxUrl;
+  const finalGuideHtml = problemData?.guideHtml || propGuideHtml;
+  const activeSolution = modelSolution || code;
 
   return (
     <div className="flex w-full h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
@@ -112,11 +102,11 @@ export function WorkspaceLayout({
         <Panel defaultSize={45} minSize={30}>
           <div className="h-full border-r">
             <ProblemTabs
-              pdfUrl={pdfUrl}
-              docxUrl={docxUrl}
-              guideHtml={guideHtml}
+              pdfUrl={finalPdfUrl}
+              docxUrl={finalDocxUrl}
+              guideHtml={finalGuideHtml}
               problemCode={problemCode}
-              initialCode={TEACHER_SOLUTION_TEMPLATE}
+              initialCode={activeSolution}
               onApplyCode={(newCode) => {
                 hasUserEdited.current = true;
                 setCode(newCode);
@@ -159,22 +149,6 @@ function ResizeHandle({ vertical = false }: { vertical?: boolean }) {
         "relative flex w-px items-center justify-center bg-border transition-colors hover:bg-slate-400 dark:hover:bg-slate-600 data-[resize-handle-active]:bg-primary",
         vertical ? "h-px w-full" : "w-px h-full"
       )}
-    >
-      <div className={cn("z-10 flex items-center justify-center rounded-sm border bg-background", vertical ? "h-3 w-8" : "h-8 w-3")}>
-        {vertical ? (
-          <div className="flex items-center gap-[2px]">
-            <div className="h-0.5 w-1 rounded-full bg-muted-foreground/50" />
-            <div className="h-0.5 w-1 rounded-full bg-muted-foreground/50" />
-            <div className="h-0.5 w-1 rounded-full bg-muted-foreground/50" />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-[2px]">
-            <div className="h-1 w-0.5 rounded-full bg-muted-foreground/50" />
-            <div className="h-1 w-0.5 rounded-full bg-muted-foreground/50" />
-            <div className="h-1 w-0.5 rounded-full bg-muted-foreground/50" />
-          </div>
-        )}
-      </div>
-    </PanelResizeHandle>
+    />
   );
 }
