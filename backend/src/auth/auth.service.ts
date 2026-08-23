@@ -98,6 +98,82 @@ export class AuthService {
   }
 
   /**
+   * Lấy Bảng xếp hạng thật từ database
+   */
+  async getLeaderboard() {
+    const users = await this.prisma.user.findMany({
+      include: {
+        submissions: {
+          select: {
+            problemId: true,
+            score: true,
+            verdict: true,
+            submittedAt: true,
+          },
+        },
+      },
+    });
+
+    const ranked = users.map((u) => {
+      // Best score per problem
+      const problemScores = new Map<string, number>();
+
+      u.submissions.forEach((s) => {
+        const currentBest = problemScores.get(s.problemId) || 0;
+        if ((s.score || 0) > currentBest) {
+          problemScores.set(s.problemId, s.score || 0);
+        }
+      });
+
+      const totalScore = Array.from(problemScores.values()).reduce((a, b) => a + b, 0);
+      const solvedCount = Array.from(problemScores.values()).filter((score) => score === 100).length;
+
+      let tier: 'Grandmaster' | 'Master' | 'Candidate Master' | 'Expert' | 'Specialist' = 'Specialist';
+      let tierColor = '#10b981';
+
+      if (totalScore >= 500 || solvedCount >= 5) {
+        tier = 'Grandmaster';
+        tierColor = '#ef4444';
+      } else if (totalScore >= 300 || solvedCount >= 3) {
+        tier = 'Master';
+        tierColor = '#f59e0b';
+      } else if (totalScore >= 200 || solvedCount >= 2) {
+        tier = 'Candidate Master';
+        tierColor = '#8b5cf6';
+      } else if (totalScore >= 100 || solvedCount >= 1) {
+        tier = 'Expert';
+        tierColor = '#3b82f6';
+      }
+
+      return {
+        id: u.id,
+        name: u.displayName || u.email.split('@')[0],
+        email: u.email,
+        role: u.role,
+        isTeacher: u.role === UserRole.TEACHER,
+        school: u.role === UserRole.TEACHER ? 'Ban Chuyên Môn / Giáo Viên' : 'Đội Tuyển HSG Tin Học',
+        solvedCount,
+        totalScore,
+        totalSubmissions: u.submissions.length,
+        streakDays: Math.min(u.submissions.length, 7) || 1,
+        tier,
+        tierColor,
+      };
+    });
+
+    // Sort by totalScore desc, then solvedCount desc
+    ranked.sort((a, b) => {
+      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+      return b.solvedCount - a.solvedCount;
+    });
+
+    return ranked.map((item, index) => ({
+      ...item,
+      rank: index + 1,
+    }));
+  }
+
+  /**
    * Nâng cấp quyền tài khoản sang Giáo viên
    */
   async setRole(email: string, role: UserRole, secretCode?: string) {

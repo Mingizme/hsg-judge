@@ -1,15 +1,28 @@
 // ============================================
 // Auth Controller
-// REST API endpoints cho đồng bộ User & phân quyền
+// REST API endpoints cho đồng bộ User & phân quyền & Bảng xếp hạng
 // ============================================
 
-import { Controller, Post, Get, Body, Param, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param } from '@nestjs/common';
 import { AuthService, SyncUserDto } from './auth.service';
 import { UserRole } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  /**
+   * GET /api/auth/leaderboard
+   * Lấy Bảng xếp hạng thật của các thí sinh & giáo viên
+   */
+  @Get('leaderboard')
+  async getLeaderboard() {
+    const leaderboard = await this.authService.getLeaderboard();
+    return {
+      statusCode: 200,
+      data: leaderboard,
+    };
+  }
 
   /**
    * POST /api/auth/sync
