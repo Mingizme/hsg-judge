@@ -40,9 +40,7 @@ export class SubmissionController {
   @Post('submit')
   @HttpCode(HttpStatus.CREATED)
   async submit(@Body() dto: SubmitCodeDto) {
-    // TODO: Lấy userId từ JWT token (Supabase Auth)
-    // Tạm dùng demo user ID
-    const userId = 'demo-student-id';
+    const userId = dto.userId || 'student@hsgjudge.local';
 
     const submissionId = await this.submissionService.submitAndJudge(
       userId,
@@ -180,12 +178,10 @@ export class SubmissionController {
   @Get()
   async getHistory(
     @Query('problemCode') problemCode?: string,
+    @Query('userId') userId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    // TODO: Lấy userId từ JWT token
-    const userId = 'demo-student-id';
-
     const result = await this.submissionService.getSubmissionsByUser(
       userId,
       problemCode,

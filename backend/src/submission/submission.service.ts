@@ -480,15 +480,24 @@ export class SubmissionService {
     };
   }
 
-  // ── Get Submissions History ─────────────────
-
   async getSubmissionsByUser(
-    userId: string,
+    userId?: string,
     problemCode?: string,
     page: number = 1,
     limit: number = 20,
   ) {
-    const where: Record<string, unknown> = { userId };
+    const where: Record<string, unknown> = {};
+
+    if (userId) {
+      const user = await this.prisma.user.findFirst({
+        where: {
+          OR: [{ id: userId }, { supabaseId: userId }, { email: userId.toLowerCase() }],
+        },
+      });
+      if (user) {
+        where.userId = user.id;
+      }
+    }
 
     if (problemCode) {
       const problem = await this.prisma.problem.findUnique({

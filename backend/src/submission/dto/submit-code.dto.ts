@@ -27,6 +27,10 @@ export class SubmitCodeDto {
   @IsString()
   @IsOptional()
   language?: string = 'cpp';
+
+  @IsString()
+  @IsOptional()
+  userId?: string;
 }
 
 // ── Run Custom Input ──────────────────────────

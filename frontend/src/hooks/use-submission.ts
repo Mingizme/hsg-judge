@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useSSE } from './use-sse';
+import { useAuth } from '@/contexts/auth-context';
 
 export interface TestResult {
   testNumber: number;
@@ -13,6 +14,7 @@ export interface TestResult {
 }
 
 export function useSubmission() {
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
@@ -70,6 +72,7 @@ export function useSubmission() {
           problemCode,
           sourceCode: code,
           language: 'cpp',
+          userId: user?.id || user?.email || undefined,
         }),
       });
 
