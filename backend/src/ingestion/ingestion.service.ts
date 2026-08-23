@@ -126,6 +126,7 @@ export class IngestionService {
           pdfStoragePath,
           docxUrl,
           guideHtml,
+          isPublished: true,
           totalTests: parsed.testCases.length,
         },
         create: {
@@ -137,6 +138,7 @@ export class IngestionService {
           pdfStoragePath,
           docxUrl,
           guideHtml,
+          isPublished: true,
           totalTests: parsed.testCases.length,
           timeLimitMs: parseInt(
             process.env.DEFAULT_TIME_LIMIT_MS || '1000',

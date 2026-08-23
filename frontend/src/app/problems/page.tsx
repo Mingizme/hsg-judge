@@ -1,75 +1,124 @@
-'use client'
+'use client';
 
-import { Search, SlidersHorizontal } from 'lucide-react'
-import { ProblemCard, type Problem } from '@/components/problems/problem-card'
-
-const mockProblems: Problem[] = [
-  { id: 'strnum', code: 'STRNUM', title: 'Xóa chữ số tạo số lớn nhất', difficulty: 'MEDIUM', timeLimit: 1, memoryLimit: 256, category: ['Tham lam', 'Monotonic Stack'], acRate: 48, totalTests: 24 },
-  { id: '1', code: 'SUM2', title: 'Tổng 2 số', difficulty: 'EASY', timeLimit: 1, memoryLimit: 256, category: ['Cơ bản'], acRate: 85, totalTests: 10 },
-  { id: '2', code: 'FIBO', title: 'Dãy Fibonacci', difficulty: 'EASY', timeLimit: 1, memoryLimit: 256, category: ['Quy hoạch động'], acRate: 70, totalTests: 20 },
-  { id: '3', code: 'KNAPSACK', title: 'Cái Túi', difficulty: 'MEDIUM', timeLimit: 2, memoryLimit: 256, category: ['Quy hoạch động'], acRate: 45, totalTests: 30 },
-  { id: '4', code: 'DIJKSTRA', title: 'Đường đi ngắn nhất', difficulty: 'MEDIUM', timeLimit: 2, memoryLimit: 256, category: ['Đồ thị'], acRate: 40, totalTests: 25 },
-  { id: '5', code: 'SEGMENT', title: 'Segment Tree', difficulty: 'HARD', timeLimit: 2, memoryLimit: 512, category: ['Cấu trúc dữ liệu'], acRate: 20, totalTests: 40 },
-  { id: '6', code: 'FLOW', title: 'Luồng cực đại', difficulty: 'HARD', timeLimit: 3, memoryLimit: 512, category: ['Đồ thị'], acRate: 15, totalTests: 50 },
-  { id: '7', code: 'PALIN', title: 'Xâu đối xứng', difficulty: 'EASY', timeLimit: 1, memoryLimit: 256, category: ['Xâu'], acRate: 60, totalTests: 15 },
-];
+import React, { useState, useEffect } from 'react';
+import { Search, SlidersHorizontal, RefreshCw, BookOpen } from 'lucide-react';
+import { ProblemCard, type Problem } from '@/components/problems/problem-card';
 
 export default function ProblemsPage() {
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDifficulty, setSelectedDifficulty] = useState('');
+
+  const fetchProblems = async () => {
+    setLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
+      const res = await fetch(`${apiUrl}/problems`);
+      if (res.ok) {
+        const json = await res.json();
+        const rawList = json.data?.problems || json.data?.items || json.data || json;
+        if (Array.isArray(rawList)) {
+          const mapped: Problem[] = rawList.map((p: any) => ({
+            id: p.id || p.code,
+            code: p.code,
+            title: p.title || `Bài tập ${p.code}`,
+            difficulty: p.difficulty || 'MEDIUM',
+            timeLimit: (p.timeLimitMs || 1000) / 1000,
+            memoryLimit: p.memoryLimitMb || 256,
+            category: p.categories?.map((c: any) => c.name || c.nameVi) || ['Tin học HSG'],
+            acRate: p.totalSubmissions > 0 ? Math.round((p.totalSolved || 1) / p.totalSubmissions * 100) : 50,
+            totalTests: p.totalTests || 24,
+          }));
+          setProblems(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch problems list:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProblems();
+  }, []);
+
+  const filteredProblems = problems.filter((p) => {
+    const matchSearch =
+      p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.title.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchDiff = !selectedDifficulty || p.difficulty === selectedDifficulty;
+    return matchSearch && matchDiff;
+  });
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+    <div className="container mx-auto px-4 py-8 max-w-7xl space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Danh sách bài tập</h1>
-          <p className="text-muted-foreground">Khám phá và giải quyết các bài toán từ cơ bản đến nâng cao.</p>
+          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-1">
+            <BookOpen className="w-4 h-4" /> Kho Đề Thi HSG Tin Học
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">Danh Sách Bài Tập Thực Hành</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Hệ thống bài tập C++ chuẩn hóa kèm đề thi PDF, sơ đồ thuật toán và chấm điểm tự động.
+          </p>
         </div>
+
+        <button
+          onClick={fetchProblems}
+          disabled={loading}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm"
+        >
+          <RefreshCw className={loading ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'} />
+          <span>Làm mới danh sách</span>
+        </button>
       </div>
 
       {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row gap-4 mb-8 p-4 bg-card border rounded-xl shadow-sm">
+      <div className="flex flex-col md:flex-row gap-4 p-4 bg-card border rounded-2xl shadow-sm">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input 
-            type="text" 
-            placeholder="Tìm kiếm theo mã hoặc tên bài..." 
-            className="w-full pl-10 pr-4 py-2 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+          <input
+            type="text"
+            placeholder="Tìm kiếm theo mã hoặc tên bài (STRNUM, TAOXAU...)..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-background border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs sm:text-sm"
           />
         </div>
         <div className="flex gap-2">
-          <select className="px-4 py-2 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm appearance-none">
-            <option value="">Độ khó (Tất cả)</option>
+          <select
+            value={selectedDifficulty}
+            onChange={(e) => setSelectedDifficulty(e.target.value)}
+            className="px-3 py-2 bg-background border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs sm:text-sm"
+          >
+            <option value="">Tất cả độ khó</option>
             <option value="EASY">Dễ</option>
             <option value="MEDIUM">Trung bình</option>
             <option value="HARD">Khó</option>
           </select>
-          <select className="px-4 py-2 bg-background border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm appearance-none">
-            <option value="">Chủ đề (Tất cả)</option>
-            <option value="dp">Quy hoạch động</option>
-            <option value="graph">Đồ thị</option>
-            <option value="ds">Cấu trúc dữ liệu</option>
-          </select>
-          <button className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium">
-            <SlidersHorizontal className="h-4 w-4" />
-            Lọc thêm
-          </button>
         </div>
       </div>
 
       {/* Problems Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {mockProblems.map((problem) => (
-          <ProblemCard key={problem.id} problem={problem} />
-        ))}
-      </div>
-
-      {/* Pagination (Mock) */}
-      <div className="flex justify-center items-center gap-2">
-        <button className="px-4 py-2 border rounded-md text-sm hover:bg-accent disabled:opacity-50" disabled>Trước</button>
-        <button className="w-10 h-10 border rounded-md text-sm bg-primary text-primary-foreground font-medium">1</button>
-        <button className="w-10 h-10 border rounded-md text-sm hover:bg-accent font-medium">2</button>
-        <button className="w-10 h-10 border rounded-md text-sm hover:bg-accent font-medium">3</button>
-        <span className="text-muted-foreground">...</span>
-        <button className="px-4 py-2 border rounded-md text-sm hover:bg-accent">Sau</button>
-      </div>
+      {loading ? (
+        <div className="p-12 text-center text-muted-foreground text-xs flex items-center justify-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+          <span>Đang tải danh sách bài tập từ máy chủ...</span>
+        </div>
+      ) : filteredProblems.length === 0 ? (
+        <div className="p-12 text-center text-muted-foreground text-xs border rounded-2xl bg-card">
+          Chưa tìm thấy bài tập nào phù hợp. Giáo viên có thể tải lên gói bài tập tại Bảng Quản Trị.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProblems.map((problem) => (
+            <ProblemCard key={problem.id} problem={problem} />
+          ))}
+        </div>
+      )}
     </div>
-  )
+  );
 }
