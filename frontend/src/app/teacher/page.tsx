@@ -74,7 +74,8 @@ export default function TeacherPortalPage() {
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  const API_URL =
+    process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
 
   // Handle Scan Data Directory
   const handleScanDirectory = async () => {

@@ -25,9 +25,10 @@ export function useSSE(submissionId: string | null) {
       return;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+    const apiUrl =
+      process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
     let eventSource: EventSource | null = null;
-    let reconnectTimeout: NodeJS.Timeout;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
 
     const connect = () => {
       try {
@@ -89,7 +90,9 @@ export function useSSE(submissionId: string | null) {
       if (eventSource) {
         eventSource.close();
       }
-      clearTimeout(reconnectTimeout);
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
     };
   }, [submissionId]);
 

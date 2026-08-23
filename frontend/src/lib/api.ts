@@ -1,6 +1,7 @@
 import { Problem, Submission } from '@/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
 
 export const api = {
   getProblems: async (): Promise<Problem[]> => {

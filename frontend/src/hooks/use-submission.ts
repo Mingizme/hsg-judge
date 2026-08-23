@@ -64,7 +64,8 @@ export function useSubmission() {
     setScore(0);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
       const response = await fetch(`${apiUrl}/submissions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,7 +94,8 @@ export function useSubmission() {
   const runCustom = useCallback(async (code: string, input: string, problemCode: string = 'STRNUM') => {
     setIsRunning(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
       const response = await fetch(`${apiUrl}/submissions/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

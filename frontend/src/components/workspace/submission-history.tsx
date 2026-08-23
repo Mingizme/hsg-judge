@@ -40,7 +40,8 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
       const userParam = user?.id || user?.email || '';
       const url = `${apiUrl}/submissions?problemCode=${problemCode.toUpperCase()}${userParam ? `&userId=${userParam}` : ''}`;
       
