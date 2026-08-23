@@ -3,26 +3,40 @@
 import * as React from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { cn } from '@/lib/utils';
-import { PdfViewer } from './pdf-viewer';
+import { StatementViewer } from './statement-viewer';
 import { GuideViewer } from './guide-viewer';
 import { SubmissionHistory } from './submission-history';
 import { FlowchartViewer } from './flowchart-viewer';
 import { ScaffoldedCode } from './scaffolded-code';
 
 interface ProblemTabsProps {
+  problemCode: string;
+  title?: string;
+  difficulty?: string;
+  timeLimitMs?: number;
+  memoryLimitMb?: number;
+  ioType?: 'FILE' | 'STANDARD';
+  ioFileName?: string;
   pdfUrl?: string;
   docxUrl?: string;
   guideHtml?: string;
-  problemCode: string;
+  description?: string;
   initialCode?: string;
   onApplyCode?: (code: string) => void;
 }
 
 export function ProblemTabs({
+  problemCode,
+  title,
+  difficulty,
+  timeLimitMs,
+  memoryLimitMb,
+  ioType,
+  ioFileName,
   pdfUrl,
   docxUrl,
   guideHtml,
-  problemCode,
+  description,
   initialCode,
   onApplyCode,
 }: ProblemTabsProps) {
@@ -38,7 +52,19 @@ export function ProblemTabs({
       
       <div className="flex-1 overflow-hidden relative">
         <TabsPrimitive.Content value="pdf" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <PdfViewer pdfUrl={pdfUrl} guideHtml={guideHtml} problemCode={problemCode} />
+          <StatementViewer
+            problemCode={problemCode}
+            title={title}
+            difficulty={difficulty}
+            timeLimitMs={timeLimitMs}
+            memoryLimitMb={memoryLimitMb}
+            ioType={ioType}
+            ioFileName={ioFileName}
+            pdfUrl={pdfUrl}
+            docxUrl={docxUrl}
+            guideHtml={guideHtml}
+            description={description}
+          />
         </TabsPrimitive.Content>
 
         <TabsPrimitive.Content value="guide" className="h-full w-full outline-none data-[state=inactive]:hidden">

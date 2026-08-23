@@ -102,10 +102,17 @@ export function WorkspaceLayout({
         <Panel defaultSize={45} minSize={30}>
           <div className="h-full border-r">
             <ProblemTabs
+              problemCode={problemCode}
+              title={problemData?.title}
+              difficulty={problemData?.difficulty}
+              timeLimitMs={problemData?.timeLimitMs}
+              memoryLimitMb={problemData?.memoryLimitMb}
+              ioType={problemData?.ioType}
+              ioFileName={problemData?.ioFileName}
               pdfUrl={finalPdfUrl}
               docxUrl={finalDocxUrl}
               guideHtml={finalGuideHtml}
-              problemCode={problemCode}
+              description={problemData?.description}
               initialCode={activeSolution}
               onApplyCode={(newCode) => {
                 hasUserEdited.current = true;
