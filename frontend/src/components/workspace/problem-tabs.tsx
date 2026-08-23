@@ -38,7 +38,7 @@ export function ProblemTabs({
       
       <div className="flex-1 overflow-hidden relative">
         <TabsPrimitive.Content value="pdf" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <PdfViewer pdfUrl={pdfUrl} />
+          <PdfViewer pdfUrl={pdfUrl} guideHtml={guideHtml} problemCode={problemCode} />
         </TabsPrimitive.Content>
 
         <TabsPrimitive.Content value="guide" className="h-full w-full outline-none data-[state=inactive]:hidden">
