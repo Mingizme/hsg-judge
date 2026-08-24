@@ -233,22 +233,37 @@ export function generateFlowchartFromCpp(
       },
     });
 
+    // Cạnh từ vòng lặp xuống khi duyệt xong toàn bộ xâu
+    edges.push({
+      id: `e-${loopId}-${outId}`,
+      source: loopId,
+      target: outId,
+      label: '⚡ Khi duyệt hết xâu (i == n)',
+      labelStyle: { fill: '#38bdf8', fontWeight: 600, fontSize: 11 },
+      labelBgStyle: { fill: '#082f49', fillOpacity: 0.85, rx: 6, ry: 6 },
+      labelBgPadding: [8, 4],
+      labelBgBorderRadius: 6,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8' },
+      style: { stroke: '#38bdf8', strokeWidth: 2 },
+    });
+
+    // Cạnh hồi tiếp lặp lại ký tự tiếp theo
     edges.push({
       id: `e-${actDigitId}-${outId}`,
       source: actDigitId,
       target: outId,
-      label: 'Hết xâu',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
-      style: { stroke: '#64748b', strokeWidth: 1.5, strokeDasharray: '4 4' },
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' },
+      style: { stroke: '#475569', strokeWidth: 1.5, strokeDasharray: '4 4' },
     });
 
     edges.push({
       id: `e-${actAlphaId}-${outId}`,
       source: actAlphaId,
       target: outId,
-      label: 'Hết xâu',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
-      style: { stroke: '#64748b', strokeWidth: 1.5, strokeDasharray: '4 4' },
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' },
+      style: { stroke: '#475569', strokeWidth: 1.5, strokeDasharray: '4 4' },
     });
 
     return { nodes, edges };
