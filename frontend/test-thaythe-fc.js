@@ -1,71 +1,38 @@
-// ============================================
-// C++ to Flowchart Generator Engine
-// 100% Dynamic AST Parser: Phân tích trực tiếp từ mã nguồn C++ thực tế
-// Tự động sinh Sơ đồ thuật toán React Flow bám sát từng dòng code mẫu của BẤT KỲ bài tập nào
-// ============================================
-
-import { Node, Edge, MarkerType } from 'reactflow';
-
-export interface FlowchartData {
-  nodes: Node[];
-  edges: Edge[];
-}
-
-export function generateFlowchartFromCpp(
-  cppCode: string,
-  problemCode: string = 'PROBLEM'
-): FlowchartData {
+function generateUniversalFlowchart(cppCode, problemCode = 'PROBLEM') {
   const upperCode = problemCode.toUpperCase();
 
-  // Loại bỏ các dòng tiền xử lý, cấu hình IO rác
-  const rawLines = (cppCode || '').split('\n');
-  const lines: string[] = [];
+  // Loại bỏ các dòng tiền xử lý, cấu hình IO
+  const rawLines = cppCode.split('\n');
+  const lines = [];
 
   for (let l of rawLines) {
     let s = l.trim();
     if (!s) continue;
-    if (
-      s.startsWith('//') ||
-      s.startsWith('#') ||
-      s.startsWith('using namespace') ||
-      s.startsWith('ios_base') ||
-      s.startsWith('cin.tie') ||
-      s.startsWith('freopen') ||
-      s.startsWith('if (fopen') ||
-      s.startsWith('return 0')
-    )
-      continue;
+    if (s.startsWith('//') || s.startsWith('#') || s.startsWith('using namespace') || s.startsWith('ios_base') || s.startsWith('cin.tie') || s.startsWith('freopen') || s.startsWith('if (fopen') || s.startsWith('return 0')) continue;
     if (s === '{' || s === '}') continue;
     lines.push(s);
   }
 
-  // 1. Phân loại câu lệnh từ mã nguồn thực tế
-  let initParts: string[] = [];
+  // 1. Phân loại câu lệnh
+  let initParts = [];
   let loopHeader = '';
-  let conditions: Array<{ cond: string; trueActions: string[]; falseActions: string[] }> = [];
-  let outputParts: string[] = [];
+  let conditions = []; // { cond: string, trueActions: string[], falseActions: string[] }
+  let outputParts = [];
 
   let inLoop = false;
   let inIf = false;
   let currentCond = '';
-  let currentActions: string[] = [];
+  let currentActions = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Lệnh nhập và khai báo biến
-    if (
-      line.includes('cin >>') ||
-      line.includes('getline(') ||
-      line.includes('scanf(') ||
-      /^(int|long long|string|char|float|double|bool|vector|stack|queue)\s+/.test(line)
-    ) {
+    if (line.includes('cin >>') || line.includes('getline(') || line.includes('scanf(') || /^(int|long long|string|char|float|double|bool|vector|stack|queue)\s+/.test(line)) {
       if (!line.includes('main()') && !inLoop && !inIf) {
         initParts.push(line.replace(/\{.*$/, '').replace(/;.*$/, ';').trim());
       }
     }
 
-    // Vòng lặp
     if (/^(for|while)\s*\(/.test(line)) {
       const header = line.replace(/\{.*$/, '').trim();
       if (!loopHeader) {
@@ -92,25 +59,19 @@ export function generateFlowchartFromCpp(
     } else if (inIf) {
       if (line.includes('}')) {
         const action = line.replace(/\}.*$/, '').trim();
-        if (action && !action.includes('cout <<') && !action.includes('printf(')) {
-          currentActions.push(action);
-        }
+        if (action) currentActions.push(action);
         conditions.push({
           cond: currentCond,
           trueActions: [...currentActions],
-          falseActions: ['// Không thỏa điều kiện -> Duyệt tiếp'],
+          falseActions: ['// Không thỏa mãn điều kiện\n// Duyệt tiếp phần tử kế'],
         });
         inIf = false;
         currentCond = '';
         currentActions = [];
       } else {
-        if (!line.includes('cout <<') && !line.includes('printf(')) {
-          currentActions.push(line);
-        }
+        currentActions.push(line);
       }
-    }
-
-    if (line.includes('cout <<') || line.includes('printf(')) {
+    } else if (line.includes('cout <<') || line.includes('printf(')) {
       outputParts.push(line.replace(/\{.*$/, '').replace(/;.*$/, ';').trim());
     }
   }
@@ -123,12 +84,12 @@ export function generateFlowchartFromCpp(
     });
   }
 
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-  const centerX = 300;
+  const nodes = [];
+  const edges = [];
+  const centerX = 320;
   let currentY = 30;
 
-  // ── 1. Node Khởi tạo & Nhập liệu ────────────
+  // Node 1: Khởi tạo & Nhập liệu
   const initLabel = initParts.length > 0 ? initParts.join('\n') : `cin >> data;`;
   const initId = 'node-init';
   nodes.push({
@@ -138,13 +99,13 @@ export function generateFlowchartFromCpp(
     data: {
       category: 'Khởi tạo & Nhập dữ liệu',
       label: initLabel,
-      subtext: `Khai báo biến & nạp dữ liệu đầu vào cho bài ${upperCode}`,
+      subtext: `Khai báo biến & nạp dữ liệu cho bài toán ${upperCode}`,
       type: 'start',
     },
   });
   currentY += 130;
 
-  // ── 2. Node Vòng lặp chính ──────────────────
+  // Node 2: Vòng lặp
   const loopId = 'node-loop';
   const finalLoop = loopHeader || `for (int i = 0; i < n; i++)`;
   nodes.push({
@@ -154,7 +115,7 @@ export function generateFlowchartFromCpp(
     data: {
       category: 'Vòng lặp chính',
       label: finalLoop,
-      subtext: `Duyệt lần lượt các phần tử / ký tự từ đầu đến cuối`,
+      subtext: `Lần lượt duyệt các phần tử / ký tự từ đầu đến cuối`,
       type: 'action',
     },
   });
@@ -164,12 +125,12 @@ export function generateFlowchartFromCpp(
     source: initId,
     target: loopId,
     animated: true,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
+    markerEnd: { type: 'arrowclosed', color: '#3b82f6' },
     style: { stroke: '#3b82f6', strokeWidth: 2.5 },
   });
   currentY += 140;
 
-  // ── 3 & 4. Các điều kiện rẽ nhánh & Thao tác bóc tách từ C++ ──
+  // Node 3 & 4: Các điều kiện rẽ nhánh & Thao tác
   if (conditions.length === 1) {
     const c = conditions[0];
     const condId = 'node-cond-0';
@@ -189,7 +150,7 @@ export function generateFlowchartFromCpp(
       id: `e-${loopId}-${condId}`,
       source: loopId,
       target: condId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#f59e0b' },
+      markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
       style: { stroke: '#f59e0b', strokeWidth: 2 },
     });
     currentY += 140;
@@ -198,11 +159,11 @@ export function generateFlowchartFromCpp(
     nodes.push({
       id: trueId,
       type: 'custom',
-      position: { x: 80, y: currentY },
+      position: { x: 100, y: currentY },
       data: {
         category: 'Thao tác [Đúng]',
-        label: c.trueActions.length > 0 ? c.trueActions.join('\n') : '// Thực hiện thao tác',
-        subtext: 'Điều kiện thỏa mãn -> Thực hiện biến đổi / xử lý',
+        label: c.trueActions.join('\n'),
+        subtext: 'Điều kiện thỏa mãn -> Thực hiện biến đổi / cập nhật',
         type: 'stack',
       },
     });
@@ -211,7 +172,7 @@ export function generateFlowchartFromCpp(
     nodes.push({
       id: falseId,
       type: 'custom',
-      position: { x: 520, y: currentY },
+      position: { x: 540, y: currentY },
       data: {
         category: 'Thao tác [Sai]',
         label: c.falseActions.join('\n'),
@@ -228,8 +189,7 @@ export function generateFlowchartFromCpp(
       labelStyle: { fill: '#10b981', fontWeight: 700, fontSize: 11 },
       labelBgStyle: { fill: '#064e3b', fillOpacity: 0.85, rx: 6, ry: 6 },
       labelBgPadding: [6, 4],
-      labelBgBorderRadius: 6,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
+      markerEnd: { type: 'arrowclosed', color: '#10b981' },
       style: { stroke: '#10b981', strokeWidth: 2.5 },
     });
 
@@ -241,14 +201,15 @@ export function generateFlowchartFromCpp(
       labelStyle: { fill: '#ef4444', fontWeight: 700, fontSize: 11 },
       labelBgStyle: { fill: '#450a0a', fillOpacity: 0.85, rx: 6, ry: 6 },
       labelBgPadding: [6, 4],
-      labelBgBorderRadius: 6,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' },
+      markerEnd: { type: 'arrowclosed', color: '#ef4444' },
       style: { stroke: '#ef4444', strokeWidth: 2 },
     });
     currentY += 160;
   } else if (conditions.length > 1) {
-    const condIds: string[] = [];
-    const actIds: string[] = [];
+    // Nhiều nhánh điều kiện (như DEMKTSO: if chữ số, if chữ cái)
+    const colWidth = 440 / conditions.length;
+    const condIds = [];
+    const actIds = [];
 
     for (let cIdx = 0; cIdx < conditions.length; cIdx++) {
       const c = conditions[cIdx];
@@ -278,8 +239,7 @@ export function generateFlowchartFromCpp(
         labelStyle: { fill: '#38bdf8', fontWeight: 600, fontSize: 11 },
         labelBgStyle: { fill: '#082f49', fillOpacity: 0.85, rx: 6, ry: 6 },
         labelBgPadding: [6, 4],
-        labelBgBorderRadius: 6,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8' },
+        markerEnd: { type: 'arrowclosed', color: '#38bdf8' },
         style: { stroke: '#38bdf8', strokeWidth: 2 },
       });
     }
@@ -311,40 +271,16 @@ export function generateFlowchartFromCpp(
         labelStyle: { fill: '#10b981', fontWeight: 700, fontSize: 11 },
         labelBgStyle: { fill: '#064e3b', fillOpacity: 0.85, rx: 6, ry: 6 },
         labelBgPadding: [6, 4],
-        labelBgBorderRadius: 6,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
+        markerEnd: { type: 'arrowclosed', color: '#10b981' },
         style: { stroke: '#10b981', strokeWidth: 2.5 },
       });
     }
     currentY += 160;
-  } else {
-    // Trường hợp không có lệnh if rõ ràng: tạo khối thao tác tuần tự
-    const actId = 'node-action-main';
-    nodes.push({
-      id: actId,
-      type: 'custom',
-      position: { x: centerX, y: currentY },
-      data: {
-        category: 'Thao tác xử lý',
-        label: '// Thực thi thuật toán trong vòng lặp',
-        subtext: 'Tính toán và cập nhật trạng thái',
-        type: 'stack',
-      },
-    });
-
-    edges.push({
-      id: `e-${loopId}-${actId}`,
-      source: loopId,
-      target: actId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
-      style: { stroke: '#3b82f6', strokeWidth: 2 },
-    });
-    currentY += 150;
   }
 
-  // ── 5. Node Xuất kết quả & Kết thúc ─────────
+  // Node Xuất kết quả
   const outId = 'node-output';
-  const outLabel = outputParts.length > 0 ? outputParts.join('\n') : `cout << ans;`;
+  const outLabel = outputParts.length > 0 ? outputParts.join('\n') : `cout << result;`;
   nodes.push({
     id: outId,
     type: 'custom',
@@ -365,10 +301,34 @@ export function generateFlowchartFromCpp(
     labelStyle: { fill: '#38bdf8', fontWeight: 600, fontSize: 11 },
     labelBgStyle: { fill: '#082f49', fillOpacity: 0.85, rx: 6, ry: 6 },
     labelBgPadding: [8, 4],
-    labelBgBorderRadius: 6,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8' },
+    markerEnd: { type: 'arrowclosed', color: '#38bdf8' },
     style: { stroke: '#38bdf8', strokeWidth: 2 },
   });
 
   return { nodes, edges };
 }
+
+const thaytheCode = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    freopen("thaythe.inp", "r", stdin);
+    freopen("thaythe.out", "w", stdout);
+    string n;
+    getline(cin, n);
+    for (int i = 0; i < n.size() - 2; i++) {
+        if (n[i] == 'a' && n[i+1] == 'n' && n[i+2] == 'h') {
+            n[i] = 'e';
+            n[i+1] = 'm';
+            n.erase(i + 2, 1);
+        }
+    }
+    cout << n;
+    return 0;
+}`;
+
+const fc = generateUniversalFlowchart(thaytheCode, 'THAYTHE');
+console.log('THAYTHE Universal Flowchart Nodes:');
+console.log(JSON.stringify(fc.nodes.map(n => ({ id: n.id, cat: n.data.category, label: n.data.label })), null, 2));

@@ -49,6 +49,14 @@ export function WorkspaceLayout({
   const API_URL =
     process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
 
+  // Khi chuyển đổi bài tập, reset sạch sẽ trạng thái để nạp đúng bài mới
+  React.useEffect(() => {
+    hasUserEdited.current = false;
+    setModelSolution('');
+    setProblemData(null);
+    setCode(STUDENT_STARTER_TEMPLATE(problemCode));
+  }, [problemCode]);
+
   // Tải chi tiết bài tập từ Backend (Lời giải mẫu, HTML hướng dẫn, PDF...)
   React.useEffect(() => {
     const fetchDetail = async () => {
