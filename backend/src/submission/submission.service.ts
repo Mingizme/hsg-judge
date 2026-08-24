@@ -516,6 +516,7 @@ export class SubmissionService {
         where,
         include: {
           problem: { select: { code: true, title: true } },
+          user: { select: { id: true, email: true, displayName: true, role: true } },
           _count: { select: { results: true } },
         },
         orderBy: { submittedAt: 'desc' },
@@ -531,13 +532,21 @@ export class SubmissionService {
         problemCode: s.problem.code,
         problemTitle: s.problem.title,
         status: s.status,
-        verdict: s.verdict,
-        score: s.score,
-        maxScore: s.maxScore,
+        verdict: s.verdict || (s.status === 'COMPLETED' ? 'AC' : s.status),
+        score: s.score ?? (s.verdict === 'AC' ? (s.maxScore || 100) : 0),
+        maxScore: s.maxScore || 100,
         language: s.language,
         executionTimeMs: s.executionTimeMs,
         submittedAt: s.submittedAt,
         totalTests: s._count.results,
+        user: s.user
+          ? {
+              id: s.user.id,
+              email: s.user.email,
+              displayName: s.user.displayName,
+              role: s.user.role,
+            }
+          : null,
       })),
       pagination: {
         page,
