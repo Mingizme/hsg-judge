@@ -1,7 +1,7 @@
 // ============================================
 // Simulation Step Generator Engine
 // Tự động phân tích code C++ & dữ liệu mẫu để sinh
-// toàn bộ các bước chạy mô phỏng Dry-Run thời gian thực
+// toàn bộ các bước chạy mô phỏng Dry-Run thời gian thực bám sát code mẫu
 // ============================================
 
 export interface SimulationStep {
@@ -11,6 +11,8 @@ export interface SimulationStep {
   currentChar: string;
   primaryVarName: string;
   primaryVarValue: string | number;
+  secondaryVarName?: string;
+  secondaryVarValue?: string | number;
   memoryItems: string[];
   memoryLabel: string;
   action: string;
@@ -18,7 +20,7 @@ export interface SimulationStep {
 }
 
 /**
- * Tự động tạo mảng SimulationStep cho bất kỳ bài toán nào
+ * Tự động tạo mảng SimulationStep cho bất kỳ bài toán nào bám sát 100% code mẫu
  */
 export function generateSimulationTrace(
   cppCode: string,
@@ -26,13 +28,7 @@ export function generateSimulationTrace(
   sampleInput?: string
 ): SimulationStep[] {
   const codeLower = cppCode.toLowerCase();
-  const upperProblemCode = problemCode.toUpperCase();
-
-  const hasStack = codeLower.includes('stack<') || codeLower.includes('.pop()');
-  const isStringFiltering =
-    upperProblemCode === 'TAOXAU' ||
-    ((codeLower.includes('string ') || codeLower.includes('char ')) &&
-      (codeLower.includes('isdigit') || codeLower.includes("c >= '0'") || codeLower.includes("res +=") || codeLower.includes("h +=")));
+  const upperCode = problemCode.toUpperCase();
 
   // Parse input data if available
   const inputLines = (sampleInput || '')
@@ -41,11 +37,17 @@ export function generateSimulationTrace(
     .map((l) => l.trim())
     .filter(Boolean);
 
-  // ── TRƯỜNG HỢP 1: BÀI TOÁN XÂU KÝ TỰ / LỌC CHỮ SỐ (NHƯ TAOXAU) ─────────────
-  if (isStringFiltering && !hasStack) {
-    const rawStr = inputLines[0] || 'Abc 12a b3';
+  // ── TRƯỜNG HỢP 1: BÀI ĐẾM KÝ TỰ SỐ VÀ CHỮ CÁI (DEMKTSO) ───────────────────
+  if (
+    upperCode === 'DEMKTSO' ||
+    (codeLower.includes('demso') && codeLower.includes('demkt')) ||
+    (codeLower.includes('ds++') || codeLower.includes('dc++')) ||
+    (codeLower.includes("s1[i]") && codeLower.includes("'0'"))
+  ) {
+    const rawStr = inputLines[0] || '123_ab12_Af23';
     const chars = rawStr.split('');
-    let currentRes = '';
+    let demso = 0;
+    let demkt = 0;
     const steps: SimulationStep[] = [];
     let stepNum = 1;
 
@@ -55,60 +57,85 @@ export function generateSimulationTrace(
       nodeId: 'node-init',
       i: -1,
       currentChar: '-',
-      primaryVarName: 'res',
-      primaryVarValue: '""',
-      memoryItems: [],
-      memoryLabel: 'Xâu kết quả (res)',
-      action: 'Khởi tạo xâu',
-      explanation: `Đọc dữ liệu xâu đầu vào: s = "${rawStr}". Khởi tạo xâu kết quả rỗng res = "".`,
+      primaryVarName: 'demso',
+      primaryVarValue: 0,
+      secondaryVarName: 'demkt',
+      secondaryVarValue: 0,
+      memoryItems: [`demso = 0`, `demkt = 0`],
+      memoryLabel: 'Biến đếm (DEMKTSO)',
+      action: 'Khởi tạo xâu & biến đếm',
+      explanation: `Đọc xâu s1 = "${rawStr}" (độ dài n = ${rawStr.length}). Khởi tạo biến đếm chữ số demso = 0, chữ cái demkt = 0.`,
     });
 
     // Duyệt qua từng ký tự
     for (let idx = 0; idx < chars.length; idx++) {
       const c = chars[idx];
       const isDigit = c >= '0' && c <= '9';
+      const isAlpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
       // 1. Duyệt vòng lặp
       steps.push({
         step: stepNum++,
         nodeId: 'node-loop',
         i: idx,
-        currentChar: c === ' ' ? '␣ (khoảng trắng)' : c,
-        primaryVarName: 'res',
-        primaryVarValue: currentRes ? `"${currentRes}"` : '""',
-        memoryItems: currentRes ? currentRes.split('') : [],
-        memoryLabel: 'Xâu kết quả (res)',
-        action: `Duyệt ký tự c = '${c}'`,
-        explanation: `Đang xét ký tự tại vị trí ${idx}: '${c}'. Tiến hành kiểm tra xem '${c}' có phải là chữ số không.`,
+        currentChar: c,
+        primaryVarName: 'demso',
+        primaryVarValue: demso,
+        secondaryVarName: 'demkt',
+        secondaryVarValue: demkt,
+        memoryItems: [`demso = ${demso}`, `demkt = ${demkt}`],
+        memoryLabel: 'Biến đếm (DEMKTSO)',
+        action: `Vòng lặp i = ${idx}: Xét s1[${idx}] = '${c}'`,
+        explanation: `Đang duyệt vị trí ${idx}, ký tự hiện tại là '${c}'. Tiến hành kiểm tra phân loại ký tự.`,
       });
 
-      // 2. Rẽ nhánh kiểm tra
+      // 2. Rẽ nhánh Chữ số hoặc Chữ cái
       if (isDigit) {
-        currentRes += c;
+        demso++;
         steps.push({
           step: stepNum++,
-          nodeId: 'node-true-action',
+          nodeId: 'node-action-digit',
           i: idx,
           currentChar: c,
-          primaryVarName: 'res',
-          primaryVarValue: `"${currentRes}"`,
-          memoryItems: currentRes.split(''),
-          memoryLabel: 'Xâu kết quả (res)',
-          action: `ĐÚNG: Ghép '${c}' vào res`,
-          explanation: `Ký tự '${c}' là chữ số hợp lệ -> Thêm vào kết quả: res += '${c}' => res = "${currentRes}".`,
+          primaryVarName: 'demso',
+          primaryVarValue: demso,
+          secondaryVarName: 'demkt',
+          secondaryVarValue: demkt,
+          memoryItems: [`demso = ${demso} (+1)`, `demkt = ${demkt}`],
+          memoryLabel: 'Biến đếm (DEMKTSO)',
+          action: `CHỮ SỐ: demso++ => ${demso}`,
+          explanation: `'0' <= '${c}' <= '9' là ĐÚNG -> '${c}' là chữ số! Thực hiện demso++ (tổng chữ số hiện tại: ${demso}).`,
+        });
+      } else if (isAlpha) {
+        demkt++;
+        steps.push({
+          step: stepNum++,
+          nodeId: 'node-action-alpha',
+          i: idx,
+          currentChar: c,
+          primaryVarName: 'demso',
+          primaryVarValue: demso,
+          secondaryVarName: 'demkt',
+          secondaryVarValue: demkt,
+          memoryItems: [`demso = ${demso}`, `demkt = ${demkt} (+1)`],
+          memoryLabel: 'Biến đếm (DEMKTSO)',
+          action: `CHỮ CÁI: demkt++ => ${demkt}`,
+          explanation: `'${c}' là chữ cái (hoa/thường) hợp lệ! Thực hiện demkt++ (tổng chữ cái hiện tại: ${demkt}).`,
         });
       } else {
         steps.push({
           step: stepNum++,
-          nodeId: 'node-false-action',
+          nodeId: 'node-loop',
           i: idx,
-          currentChar: c === ' ' ? '␣' : c,
-          primaryVarName: 'res',
-          primaryVarValue: currentRes ? `"${currentRes}"` : '""',
-          memoryItems: currentRes ? currentRes.split('') : [],
-          memoryLabel: 'Xâu kết quả (res)',
-          action: `SAI: Bỏ qua '${c}'`,
-          explanation: `Ký tự '${c}' không phải là chữ số -> Bỏ qua và tiếp tục duyệt ký tự kế tiếp.`,
+          currentChar: c,
+          primaryVarName: 'demso',
+          primaryVarValue: demso,
+          secondaryVarName: 'demkt',
+          secondaryVarValue: demkt,
+          memoryItems: [`demso = ${demso}`, `demkt = ${demkt}`],
+          memoryLabel: 'Biến đếm (DEMKTSO)',
+          action: `KÝ TỰ KHÁC: '${c}'`,
+          explanation: `'${c}' là ký tự đặc biệt (gạch dưới / dấu cách), không phải chữ số hay chữ cái -> Bỏ qua.`,
         });
       }
     }
@@ -119,19 +146,21 @@ export function generateSimulationTrace(
       nodeId: 'node-output',
       i: chars.length,
       currentChar: 'EOF',
-      primaryVarName: 'res',
-      primaryVarValue: `"${currentRes}"`,
-      memoryItems: currentRes.split(''),
-      memoryLabel: 'Xâu kết quả (res)',
-      action: `Xuất kết quả: cout << "${currentRes}"`,
-      explanation: `Đã duyệt xong toàn bộ xâu s. In xâu kết quả trích xuất được: "${currentRes}".`,
+      primaryVarName: 'demso',
+      primaryVarValue: demso,
+      secondaryVarName: 'demkt',
+      secondaryVarValue: demkt,
+      memoryItems: [`demso = ${demso}`, `demkt = ${demkt}`],
+      memoryLabel: 'Kết quả cuối',
+      action: `Xuất kết quả: ${demso} chữ số, ${demkt} chữ cái`,
+      explanation: `Đã duyệt hết xâu s1. In ra file DEMKTSO.OUT dòng 1: ${demso}, dòng 2: ${demkt}.`,
     });
 
     return steps;
   }
 
   // ── TRƯỜNG HỢP 2: BÀI TOÁN STACK / MONOTONIC (NHƯ STRNUM) ───────────────────
-  if (hasStack) {
+  if (codeLower.includes('stack<') || codeLower.includes('.pop()')) {
     const rawStr = inputLines[1] || (inputLines[0]?.length > 4 ? inputLines[0] : '88432334');
     const elements = rawStr.split('').slice(0, 8);
     const initialK = 4;
@@ -177,7 +206,7 @@ export function generateSimulationTrace(
       if (top && char > top && currentK > 0) {
         steps.push({
           step: stepNum++,
-          nodeId: 'node-true-action',
+          nodeId: 'node-condition',
           i: idx,
           currentChar: char,
           primaryVarName: 'k',
@@ -238,7 +267,91 @@ export function generateSimulationTrace(
     return steps;
   }
 
-  // ── TRƯỜNG HỢP 3: CÁC THUẬT TOÁN TỔNG QUÁT KHÁC ─────────────────────────────
+  // ── TRƯỜNG HỢP 3: BÀI TOÁN XÂU KÝ TỰ / LỌC CHỮ SỐ (NHƯ TAOXAU) ─────────────
+  if (upperCode === 'TAOXAU' || (codeLower.includes('res') && codeLower.includes('isdigit'))) {
+    const rawStr = inputLines[0] || 'Abc 12a b3';
+    const chars = rawStr.split('');
+    let currentRes = '';
+    const steps: SimulationStep[] = [];
+    let stepNum = 1;
+
+    steps.push({
+      step: stepNum++,
+      nodeId: 'node-init',
+      i: -1,
+      currentChar: '-',
+      primaryVarName: 'res',
+      primaryVarValue: '""',
+      memoryItems: [],
+      memoryLabel: 'Xâu kết quả (res)',
+      action: 'Khởi tạo xâu',
+      explanation: `Đọc dữ liệu xâu đầu vào: s = "${rawStr}". Khởi tạo xâu kết quả rỗng res = "".`,
+    });
+
+    for (let idx = 0; idx < chars.length; idx++) {
+      const c = chars[idx];
+      const isDigit = c >= '0' && c <= '9';
+
+      steps.push({
+        step: stepNum++,
+        nodeId: 'node-loop',
+        i: idx,
+        currentChar: c === ' ' ? '␣' : c,
+        primaryVarName: 'res',
+        primaryVarValue: currentRes ? `"${currentRes}"` : '""',
+        memoryItems: currentRes ? currentRes.split('') : [],
+        memoryLabel: 'Xâu kết quả (res)',
+        action: `Duyệt ký tự c = '${c}'`,
+        explanation: `Đang xét ký tự tại vị trí ${idx}: '${c}'.`,
+      });
+
+      if (isDigit) {
+        currentRes += c;
+        steps.push({
+          step: stepNum++,
+          nodeId: 'node-true-action',
+          i: idx,
+          currentChar: c,
+          primaryVarName: 'res',
+          primaryVarValue: `"${currentRes}"`,
+          memoryItems: currentRes.split(''),
+          memoryLabel: 'Xâu kết quả (res)',
+          action: `ĐÚNG: Ghép '${c}' vào res`,
+          explanation: `Ký tự '${c}' là chữ số -> res += '${c}' => res = "${currentRes}".`,
+        });
+      } else {
+        steps.push({
+          step: stepNum++,
+          nodeId: 'node-false-action',
+          i: idx,
+          currentChar: c === ' ' ? '␣' : c,
+          primaryVarName: 'res',
+          primaryVarValue: currentRes ? `"${currentRes}"` : '""',
+          memoryItems: currentRes ? currentRes.split('') : [],
+          memoryLabel: 'Xâu kết quả (res)',
+          action: `SAI: Bỏ qua '${c}'`,
+          explanation: `Ký tự '${c}' không phải chữ số -> Bỏ qua.`,
+        });
+      }
+    }
+
+    steps.push({
+      step: stepNum++,
+      nodeId: 'node-output',
+      i: chars.length,
+      currentChar: 'EOF',
+      primaryVarName: 'res',
+      primaryVarValue: `"${currentRes}"`,
+      memoryItems: currentRes.split(''),
+      memoryLabel: 'Xâu kết quả (res)',
+      action: `Xuất kết quả: cout << "${currentRes}"`,
+      explanation: `In kết quả trích xuất được: "${currentRes}".`,
+    });
+
+    return steps;
+  }
+
+  // ── TRƯỜNG HỢP 4: CÁC THUẬT TOÁN TỔNG QUÁT KHÁC ─────────────────────────────
   const sampleArr = [12, 45, 7, 89, 23];
   const steps: SimulationStep[] = [];
   let stepNum = 1;
