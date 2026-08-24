@@ -2,6 +2,10 @@
 // File Parser Utilities
 // Xử lý cấu trúc thư mục Data/ và phân tích code
 // Hỗ trợ đa nền tảng (Windows/Linux Case-Insensitive)
+// Quy tắc cốt lõi: Đuôi tệp quyết định loại tài nguyên
+//   - .pdf: Luôn là Đề bài
+//   - .docx / .doc: Luôn là Hướng dẫn giải
+//   - .cpp / .c / .cc: Luôn là Code mẫu
 // ============================================
 
 import * as fs from 'fs';
@@ -24,13 +28,13 @@ export interface ParsedSolutionCode {
 }
 
 export interface ParsedProblem {
-  code: string;                        // Mã bài (tên thư mục)
+  code: string;                        // Mã bài
   pdfPath: string | null;              // Đường dẫn file PDF
   docxPath: string | null;             // Đường dẫn file DOCX
   solutionCodes: ParsedSolutionCode[]; // Danh sách code mẫu
   testCases: ParsedTestCase[];         // Danh sách test cases
   ioType: 'STANDARD' | 'FILE';        // Loại I/O
-  ioFileName: string | null;           // Tên file I/O (không có .inp/.out)
+  ioFileName: string | null;           // Tên file I/O
 }
 
 // ── Helper: Tìm thư mục con không phân biệt hoa thường ───────
@@ -47,6 +51,28 @@ export function findSubdirectory(parentDir: string, candidateNames: string[]): s
   return null;
 }
 
+// ── Helper: Tìm tất cả các file trong thư mục theo đuôi mở rộng ──
+
+export function findFilesByExtension(dirPath: string | null, extensions: string[]): string[] {
+  if (!dirPath || !fs.existsSync(dirPath)) return [];
+  const lowerExts = extensions.map((e) => (e.startsWith('.') ? e.toLowerCase() : `.${e.toLowerCase()}`));
+
+  const results: string[] = [];
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name.startsWith('__MACOSX')) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (lowerExts.includes(ext)) {
+        results.push(fullPath);
+      }
+    }
+  }
+  return results;
+}
+
 // ── Detect I/O Type ───────────────────────────
 
 export function detectIOType(sourceCode: string): {
@@ -54,7 +80,7 @@ export function detectIOType(sourceCode: string): {
   ioFileName: string | null;
 } {
   const freopenMatch = sourceCode.match(
-    /freopen\s*\(\s*"([^"]+)\.inp"\s*,\s*"r"\s*,\s*stdin\s*\)/i,
+    /freopen\s*\(\s*["']([^"']+)\.inp["']\s*,\s*["']r["']\s*,\s*stdin\s*\)/i,
   );
 
   if (freopenMatch) {
@@ -76,7 +102,7 @@ export function parseTestFolders(testDir: string | null): ParsedTestCase[] {
 
   const entries = fs.readdirSync(testDir, { withFileTypes: true });
 
-  // Lấy tất cả các thư mục có chứa số thứ tự (Test01, test1, 01, 1...)
+  // Lấy tất cả các thư mục test (Test01, test1, 01, 1...)
   const testFolders = entries
     .filter((d) => d.isDirectory() && !d.name.startsWith('__MACOSX') && !d.name.startsWith('.'))
     .map((d) => {
@@ -88,7 +114,7 @@ export function parseTestFolders(testDir: string | null): ParsedTestCase[] {
 
   const results: ParsedTestCase[] = [];
 
-  for (const { dir, testNumber } of testFolders) {
+  for (const { dir } of testFolders) {
     const folderPath = path.join(testDir, dir.name);
     const files = fs.readdirSync(folderPath).filter((f) => !f.startsWith('.') && !f.startsWith('__'));
 
@@ -97,7 +123,7 @@ export function parseTestFolders(testDir: string | null): ParsedTestCase[] {
     const outFile = files.find((f) => /\.(out|ans|txt)$/i.test(f) && !/inp|in$/i.test(f) && f !== inpFile);
 
     if (!inpFile || !outFile) {
-      console.warn(`  ⚠️ Skipping ${dir.name}: missing input or output file`);
+      console.warn(`  ⚠️ Bỏ qua thư mục ${dir.name}: thiếu file inp hoặc out`);
       continue;
     }
 
@@ -116,73 +142,94 @@ export function parseTestFolders(testDir: string | null): ParsedTestCase[] {
         folderName: dir.name,
       });
     } catch (readErr) {
-      console.warn(`  ⚠️ Error reading test files in ${dir.name}:`, readErr);
+      console.warn(`  ⚠️ Lỗi đọc test files trong ${dir.name}:`, readErr);
     }
   }
 
   return results;
 }
 
-// ── Parse Solution Codes ──────────────────────
+// ── Parse Solution Codes (.cpp) ───────────────
+// Mọi file đuôi .cpp / .c / .cc / .cxx BẤT KỂ TÊN GÌ ĐỀU LÀ CODE MẪU
 
 export function parseSolutionCodes(
-  docDir: string | null,
+  searchDirs: (string | null)[],
   problemCode: string,
 ): ParsedSolutionCode[] {
-  if (!docDir || !fs.existsSync(docDir)) {
+  const allCppFiles: string[] = [];
+
+  for (const dir of searchDirs) {
+    if (dir && fs.existsSync(dir)) {
+      const files = findFilesByExtension(dir, ['.cpp', '.c', '.cc', '.cxx']);
+      allCppFiles.push(...files);
+    }
+  }
+
+  // Loại bỏ file trùng lặp
+  const uniqueFiles = Array.from(new Set(allCppFiles));
+
+  if (uniqueFiles.length === 0) {
     return [];
   }
 
-  const cppFiles = fs
-    .readdirSync(docDir)
-    .filter((f) => /\.cpp$/i.test(f) && !f.startsWith('.') && !f.startsWith('__'));
-
-  return cppFiles.map((fileName) => {
-    const sourceCode = fs.readFileSync(
-      path.join(docDir, fileName),
-      'utf-8',
+  return uniqueFiles.map((filePath, index) => {
+    const fileName = path.basename(filePath);
+    const sourceCode = normalizeLineEndings(
+      fs.readFileSync(filePath, 'utf-8')
     );
 
-    const baseName = path.basename(fileName, '.cpp').toLowerCase();
+    // Bỏ phần đuôi mở rộng bất kể hoa thường (.cpp, .CPP, .c...)
+    const baseName = fileName.replace(/\.(cpp|c|cc|cxx)$/i, '');
+    const cleanProblemCode = problemCode.trim().toLowerCase();
+    const cleanBaseName = baseName.trim().toLowerCase();
+
+    // File đầu tiên hoặc file trùng tên mã bài luôn là Lời giải chính
     const isPrimary =
-      baseName === problemCode.toLowerCase() ||
-      baseName === 'solution' ||
-      baseName === 'main';
+      index === 0 ||
+      cleanBaseName === cleanProblemCode ||
+      cleanBaseName === 'solution' ||
+      cleanBaseName === 'main';
 
-    let label: string;
-    if (isPrimary) {
-      label = 'Lời giải chính';
-    } else {
-      const suffix = baseName
-        .replace(problemCode.toLowerCase(), '')
-        .replace(/^[_-]/, '');
-      label = suffix
-        ? `Cách giải: ${suffix.charAt(0).toUpperCase() + suffix.slice(1)}`
-        : `Lời giải: ${baseName}`;
-    }
+    const label = isPrimary
+      ? `Lời giải chính (${fileName})`
+      : `Cách giải: ${baseName}`;
 
-    return { fileName, sourceCode, label, isPrimary };
+    return {
+      fileName,
+      sourceCode,
+      label,
+      isPrimary,
+    };
   });
 }
 
-// ── Find Document Files ───────────────────────
+// ── Find Document Files (PDF & DOCX) ──────────
+// Tên file không quan trọng, chỉ quan trọng loại tệp (.pdf là đề bài, .docx là hướng dẫn)
 
-export function findDocumentFiles(docDir: string | null): {
+export function findDocumentFiles(searchDirs: (string | null)[]): {
   pdfPath: string | null;
   docxPath: string | null;
 } {
-  if (!docDir || !fs.existsSync(docDir)) {
-    return { pdfPath: null, docxPath: null };
+  let pdfPath: string | null = null;
+  let docxPath: string | null = null;
+
+  for (const dir of searchDirs) {
+    if (!dir || !fs.existsSync(dir)) continue;
+
+    if (!pdfPath) {
+      const pdfs = findFilesByExtension(dir, ['.pdf']);
+      if (pdfs.length > 0) pdfPath = pdfs[0];
+    }
+
+    if (!docxPath) {
+      const docxs = findFilesByExtension(dir, ['.docx', '.doc']);
+      if (docxs.length > 0) docxPath = docxs[0];
+    }
+
+    if (pdfPath && docxPath) break;
   }
 
-  const files = fs.readdirSync(docDir).filter((f) => !f.startsWith('.') && !f.startsWith('__'));
-  const pdfFile = files.find((f) => /\.pdf$/i.test(f));
-  const docxFile = files.find((f) => /\.docx$/i.test(f));
-
-  return {
-    pdfPath: pdfFile ? path.join(docDir, pdfFile) : null,
-    docxPath: docxFile ? path.join(docDir, docxFile) : null,
-  };
+  return { pdfPath, docxPath };
 }
 
 // ── Parse Full Problem Directory ──────────────
@@ -192,29 +239,27 @@ export function parseProblemDirectory(
   overrideCode?: string,
 ): ParsedProblem {
   const code = (overrideCode || path.basename(problemDir)).toUpperCase();
-  const docDir = findSubdirectory(problemDir, ['Doc', 'doc', 'docs', 'Document', 'Documents']);
-  const testDir = findSubdirectory(problemDir, ['Test', 'test', 'tests', 'Tests']);
+  const docDir = findSubdirectory(problemDir, ['Doc', 'doc', 'docs', 'Document', 'Documents', 'DeBai', 'De']);
+  const testDir = findSubdirectory(problemDir, ['Test', 'test', 'tests', 'Tests', 'Data', 'data']);
 
-  // 1. Parse documents (PDF, DOCX)
-  const { pdfPath, docxPath } = findDocumentFiles(docDir);
+  const candidateDocDirs = [docDir, problemDir].filter(Boolean) as string[];
 
-  // 2. Parse solution codes (.cpp)
-  const solutionCodes = parseSolutionCodes(docDir, code);
+  // 1. Parse documents (PDF = Đề bài, DOCX = Hướng dẫn)
+  const { pdfPath, docxPath } = findDocumentFiles(candidateDocDirs);
+
+  // 2. Parse solution codes (.cpp = Code mẫu)
+  const solutionCodes = parseSolutionCodes(candidateDocDirs, code);
 
   // 3. Parse test cases
   const testCases = parseTestFolders(testDir);
 
   // 4. Detect I/O type from primary solution code
-  const primaryCode = solutionCodes.find((s) => s.isPrimary);
+  const primaryCode = solutionCodes.find((s) => s.isPrimary) || solutionCodes[0];
   let ioType: 'STANDARD' | 'FILE' = 'STANDARD';
   let ioFileName: string | null = null;
 
   if (primaryCode) {
     const detected = detectIOType(primaryCode.sourceCode);
-    ioType = detected.ioType;
-    ioFileName = detected.ioFileName;
-  } else if (solutionCodes.length > 0) {
-    const detected = detectIOType(solutionCodes[0].sourceCode);
     ioType = detected.ioType;
     ioFileName = detected.ioFileName;
   }
@@ -254,6 +299,7 @@ export function scanDataDirectory(dataDir: string): string[] {
 export function normalizeLineEndings(content: string): string {
   return content
     .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
     .split('\n')
     .map((line) => line.trimEnd())
     .join('\n')

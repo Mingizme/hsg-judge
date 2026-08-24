@@ -58,6 +58,13 @@ export function StatementViewer({
 
   const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(activePdfUrl)}&embedded=true`;
 
+  const statementContent = description || guideHtml || '';
+  const isHtml =
+    statementContent.includes('<p') ||
+    statementContent.includes('<h') ||
+    statementContent.includes('<div') ||
+    statementContent.includes('<table');
+
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden relative">
       {/* Top Toolbar with Inline Toggle */}
@@ -169,28 +176,30 @@ export function StatementViewer({
               </div>
             </div>
 
-            {/* Formatted Statement HTML */}
-            {guideHtml ? (
+            {/* Formatted Statement HTML or Text */}
+            {statementContent ? (
               <div className="p-6 rounded-2xl border bg-card shadow-sm">
-                <div
-                  className={cn(
-                    'prose prose-sm dark:prose-invert max-w-none',
-                    'prose-headings:text-foreground prose-headings:font-bold prose-headings:tracking-tight prose-headings:mt-6 prose-headings:mb-3',
-                    'prose-h3:text-base prose-h3:text-primary prose-h3:border-b prose-h3:border-border/60 prose-h3:pb-1.5',
-                    'prose-p:leading-relaxed prose-p:text-muted-foreground prose-p:my-2.5',
-                    'prose-strong:text-foreground',
-                    'prose-code:text-primary prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-code:font-mono',
-                    'prose-table:border prose-table:border-collapse prose-table:my-4 prose-table:w-full',
-                    'prose-th:border prose-th:p-2.5 prose-th:bg-muted/70 prose-th:text-foreground prose-th:font-semibold prose-th:text-left prose-th:text-xs',
-                    'prose-td:border prose-td:p-2.5 prose-td:text-xs prose-td:font-mono',
-                    'prose-ul:list-disc prose-ul:pl-5 prose-ul:space-y-1.5 prose-ul:my-2.5 prose-ul:text-muted-foreground'
-                  )}
-                  dangerouslySetInnerHTML={{ __html: guideHtml }}
-                />
-              </div>
-            ) : description ? (
-              <div className="p-6 rounded-2xl border bg-card shadow-sm leading-relaxed text-sm text-foreground whitespace-pre-wrap">
-                {description}
+                {isHtml ? (
+                  <div
+                    className={cn(
+                      'prose prose-sm dark:prose-invert max-w-none',
+                      'prose-headings:text-foreground prose-headings:font-bold prose-headings:tracking-tight prose-headings:mt-6 prose-headings:mb-3',
+                      'prose-h3:text-base prose-h3:text-primary prose-h3:border-b prose-h3:border-border/60 prose-h3:pb-1.5',
+                      'prose-p:leading-relaxed prose-p:text-muted-foreground prose-p:my-2.5',
+                      'prose-strong:text-foreground',
+                      'prose-code:text-primary prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-code:font-mono',
+                      'prose-table:border prose-table:border-collapse prose-table:my-4 prose-table:w-full',
+                      'prose-th:border prose-th:p-2.5 prose-th:bg-muted/70 prose-th:text-foreground prose-th:font-semibold prose-th:text-left prose-th:text-xs',
+                      'prose-td:border prose-td:p-2.5 prose-td:text-xs prose-td:font-mono',
+                      'prose-ul:list-disc prose-ul:pl-5 prose-ul:space-y-1.5 prose-ul:my-2.5 prose-ul:text-muted-foreground'
+                    )}
+                    dangerouslySetInnerHTML={{ __html: statementContent }}
+                  />
+                ) : (
+                  <div className="leading-relaxed text-sm text-foreground whitespace-pre-wrap">
+                    {statementContent}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-12 text-center text-muted-foreground text-xs border rounded-2xl bg-card space-y-2">

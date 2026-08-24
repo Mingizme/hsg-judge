@@ -1,7 +1,11 @@
 // ============================================
 // Ingestion Service
 // Core logic: scan directories, parse data,
-// upload PDF, persist to database
+// upload PDF/DOCX, persist to database
+// Nguyên tắc: Tên file không quan trọng, loại tệp quyết định:
+//   - .pdf: Luôn là Đề bài
+//   - .docx: Luôn là Hướng dẫn giải
+//   - .cpp: Luôn là Code mẫu
 // ============================================
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -57,6 +61,55 @@ export class IngestionService {
     private readonly storage: SupabaseStorageService,
   ) {}
 
+  /**
+   * Trích xuất văn bản từ file PDF và định dạng thành HTML sư phạm
+   */
+  private async extractStatementFromPdf(pdfPath: string): Promise<string> {
+    try {
+      const { PDFParse } = require('pdf-parse');
+      const pdfBuffer = fs.readFileSync(pdfPath);
+      const parser = new PDFParse({ data: pdfBuffer, verbosity: 0 });
+      await parser.load();
+      const textResult = await parser.getText();
+      const rawText = textResult?.text || '';
+
+      if (!rawText.trim()) return '';
+
+      // Chuẩn hóa và làm sạch văn bản
+      const clean = rawText
+        .replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .trim();
+
+      const lines = clean.split('\n').map((l: string) => l.trim()).filter(Boolean);
+
+      let html = '';
+      for (const line of lines) {
+        if (/^(\*|\d+\.|\-)\s*(input|đầu vào|dữ liệu vào)/i.test(line)) {
+          const content = line.replace(/^(\*|\d+\.|\-)\s*(input|đầu vào|dữ liệu vào)[:\s]*/i, '');
+          html += `<h3>📥 Quy cách Dữ liệu vào (Input)</h3><p>${content}</p>`;
+        } else if (/^(\*|\d+\.|\-)\s*(output|đầu ra|kết quả ra|kết quả)/i.test(line)) {
+          const content = line.replace(/^(\*|\d+\.|\-)\s*(output|đầu ra|kết quả ra|kết quả)[:\s]*/i, '');
+          html += `<h3>📤 Quy cách Kết quả ra (Output)</h3><p>${content}</p>`;
+        } else if (/^(\*|\d+\.|\-)\s*(example|ví dụ|ví dụ mẫu)/i.test(line)) {
+          html += `<h3>📊 Ví dụ mẫu (Example)</h3>`;
+        } else if (/^(\*|\d+\.|\-)\s*(ràng buộc|subtasks|giới hạn|chú ý)/i.test(line)) {
+          html += `<h3>🎯 Giới hạn & Ràng buộc</h3><p>${line}</p>`;
+        } else if (line.startsWith('-')) {
+          html += `<p class="pl-4"><strong>${line}</strong></p>`;
+        } else {
+          html += `<p>${line}</p>`;
+        }
+      }
+
+      return html;
+    } catch (err) {
+      this.logger.warn(`   ⚠️ PDF text extraction warning: ${err}`);
+      return '';
+    }
+  }
+
   // ── Ingest Single Problem Directory ───────────
 
   /**
@@ -75,17 +128,20 @@ export class IngestionService {
     this.logger.log(`   Tests: ${parsed.testCases.length}`);
     this.logger.log(`   Solutions: ${parsed.solutionCodes.length}`);
     this.logger.log(`   PDF: ${parsed.pdfPath ? '✓' : '✗'}`);
+    this.logger.log(`   DOCX: ${parsed.docxPath ? '✓' : '✗'}`);
 
     try {
-      // ── Step 1: Upload PDF ──────────────────────
+      // ── Step 1: Upload Documents & Extract Text ──
 
       let pdfUrl: string | null = null;
       let pdfStoragePath: string | null = null;
       let pdfUploaded = false;
       let docxUrl: string | null = null;
+      let statementHtml: string | null = null;
       let guideHtml: string | null = null;
 
-      if (parsed.pdfPath) {
+      // 1.1 Xử lý PDF (Đề bài)
+      if (parsed.pdfPath && fs.existsSync(parsed.pdfPath)) {
         await this.storage.ensureBucket();
         const uploadResult = await this.storage.uploadProblemPdf(
           parsed.pdfPath,
@@ -97,8 +153,15 @@ export class IngestionService {
           pdfUploaded = true;
           this.logger.log(`   📤 PDF uploaded: ${pdfUrl}`);
         }
+
+        // Tự động trích xuất nguyên văn text từ PDF
+        statementHtml = await this.extractStatementFromPdf(parsed.pdfPath);
+        if (statementHtml) {
+          this.logger.log(`   📄 Extracted Statement HTML from PDF (${statementHtml.length} chars)`);
+        }
       }
 
+      // 1.2 Xử lý DOCX (Hướng dẫn giải)
       if (parsed.docxPath && fs.existsSync(parsed.docxPath)) {
         try {
           const mammoth = require('mammoth');
@@ -112,28 +175,15 @@ export class IngestionService {
           }
           const htmlResult = await mammoth.convertToHtml({ path: parsed.docxPath });
           guideHtml = htmlResult.value;
-          this.logger.log(`   📄 DOCX converted to HTML (${guideHtml?.length || 0} chars)`);
+          this.logger.log(`   📄 DOCX converted to Guide HTML (${guideHtml?.length || 0} chars)`);
         } catch (docxErr) {
           this.logger.warn(`   ⚠️ DOCX parse error: ${docxErr}`);
         }
       }
 
-      // Trích xuất text từ PDF tự động nếu chưa có DOCX HTML
-      if (parsed.pdfPath && fs.existsSync(parsed.pdfPath) && !guideHtml) {
-        try {
-          const pdfParse = require('pdf-parse');
-          const pdfBuffer = fs.readFileSync(parsed.pdfPath);
-          const pdfData = await pdfParse(pdfBuffer);
-          if (pdfData.text && pdfData.text.trim().length > 0) {
-            const rawText = pdfData.text.replace(/\r\n/g, '\n');
-            const paragraphs = rawText.split('\n\n').filter((p: string) => p.trim().length > 0);
-            guideHtml = paragraphs.map((p: string) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
-            this.logger.log(`   📄 Extracted full text from PDF (${pdfData.text.length} chars)`);
-          }
-        } catch (pdfErr) {
-          this.logger.warn(`   ⚠️ PDF parse text error: ${pdfErr}`);
-        }
-      }
+      // Nếu không có PDF mà có DOCX, dùng DOCX cho cả Đề bài nếu cần
+      const finalDescription = statementHtml || guideHtml || (options?.title ? `Bài toán ${options.title}` : `Bài toán ${parsed.code}`);
+      const finalGuideHtml = guideHtml || statementHtml;
 
       // ── Step 2: Upsert Problem record ───────────
 
@@ -145,10 +195,11 @@ export class IngestionService {
           createdBy: options?.createdBy || undefined,
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
+          description: finalDescription,
           pdfUrl,
           pdfStoragePath,
           docxUrl,
-          guideHtml,
+          guideHtml: finalGuideHtml,
           isPublished: true,
           totalTests: parsed.testCases.length,
           timeLimitMs: options?.timeLimitMs || undefined,
@@ -161,10 +212,11 @@ export class IngestionService {
           createdBy: options?.createdBy || null,
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
+          description: finalDescription,
           pdfUrl,
           pdfStoragePath,
           docxUrl,
-          guideHtml,
+          guideHtml: finalGuideHtml,
           isPublished: true,
           totalTests: parsed.testCases.length,
           timeLimitMs:
@@ -213,7 +265,6 @@ export class IngestionService {
 
       // ── Step 3: Upsert TestCases ────────────────
 
-      // Xóa test cases cũ (nếu re-ingest) và insert mới
       await this.prisma.testCase.deleteMany({
         where: { problemId: problem.id },
       });
@@ -225,7 +276,7 @@ export class IngestionService {
             testNumber: tc.testNumber,
             inputData: tc.inputData,
             outputData: tc.outputData,
-            isSample: tc.testNumber <= 2, // 2 test đầu là sample
+            isSample: tc.testNumber <= 2,
           })),
         });
 
@@ -236,7 +287,6 @@ export class IngestionService {
 
       // ── Step 4: Upsert SolutionCodes ────────────
 
-      // Xóa solution codes cũ và insert mới
       await this.prisma.solutionCode.deleteMany({
         where: { problemId: problem.id },
       });
@@ -248,26 +298,20 @@ export class IngestionService {
             label: sc.label,
             fileName: sc.fileName,
             sourceCode: sc.sourceCode,
+            language: 'cpp',
             isPrimary: sc.isPrimary,
           })),
         });
 
         this.logger.log(
-          `   ✅ ${parsed.solutionCodes.length} solution codes inserted`,
+          `   ✅ ${parsed.solutionCodes.length} solution code(s) inserted`,
         );
       }
-
-      // ── Step 5: Update totalTests ───────────────
-
-      await this.prisma.problem.update({
-        where: { id: problem.id },
-        data: { totalTests: parsed.testCases.length },
-      });
 
       return {
         problemCode: parsed.code,
         success: true,
-        message: `Successfully ingested ${parsed.code}`,
+        message: `Problem "${parsed.code}" ingested successfully.`,
         details: {
           testCasesCount: parsed.testCases.length,
           solutionCodesCount: parsed.solutionCodes.length,
@@ -277,17 +321,17 @@ export class IngestionService {
         },
       };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`   ❌ Failed to ingest ${parsed.code}: ${message}`);
-
+      this.logger.error(
+        `   ❌ Error ingesting "${parsed.code}":`,
+        error instanceof Error ? error.stack : error,
+      );
       return {
         problemCode: parsed.code,
         success: false,
-        message: `Failed: ${message}`,
+        message: `Failed to ingest "${parsed.code}": ${error instanceof Error ? error.message : 'Unknown error'}`,
         details: {
-          testCasesCount: 0,
-          solutionCodesCount: 0,
+          testCasesCount: parsed.testCases.length,
+          solutionCodesCount: parsed.solutionCodes.length,
           pdfUploaded: false,
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
@@ -296,42 +340,43 @@ export class IngestionService {
     }
   }
 
-  // ── Batch Ingest: Scan Full Data Directory ────
+  // ── Ingest All Problems in Data/ ──────────────
 
-  /**
-   * Scan toàn bộ thư mục Data/ và nạp tất cả bài tập.
-   */
-  async ingestDataDirectory(
-    dataDir?: string,
-  ): Promise<BatchIngestionResult> {
-    const resolvedDir = dataDir || process.env.DATA_DIR || '../Data';
-    const absoluteDir = path.resolve(resolvedDir);
+  async ingestAll(dataDir?: string): Promise<BatchIngestionResult> {
+    const resolvedDataDir =
+      dataDir ||
+      process.env.DATA_DIR ||
+      path.resolve(process.cwd(), '..', 'Data');
 
-    this.logger.log(`\n🔍 Scanning data directory: ${absoluteDir}`);
+    this.logger.log(`\n========================================`);
+    this.logger.log(`🚀 Starting batch ingestion`);
+    this.logger.log(`   Source directory: ${resolvedDataDir}`);
+    this.logger.log(`========================================`);
 
-    const problemDirs = scanDataDirectory(absoluteDir);
+    const problemDirs = scanDataDirectory(resolvedDataDir);
 
-    this.logger.log(`   Found ${problemDirs.length} problem(s)\n`);
+    if (problemDirs.length === 0) {
+      this.logger.warn(`⚠️ No problem directories found in: ${resolvedDataDir}`);
+      return {
+        totalProblems: 0,
+        successful: 0,
+        failed: 0,
+        results: [],
+      };
+    }
+
+    this.logger.log(`Found ${problemDirs.length} problem directory(ies).`);
 
     const results: IngestionResult[] = [];
     let successful = 0;
     let failed = 0;
 
-    for (const dir of problemDirs) {
-      const result = await this.ingestProblem(dir);
+    for (const pDir of problemDirs) {
+      const result = await this.ingestProblem(pDir);
       results.push(result);
-
-      if (result.success) {
-        successful++;
-      } else {
-        failed++;
-      }
+      if (result.success) successful++;
+      else failed++;
     }
-
-    this.logger.log(`\n📊 Ingestion Summary:`);
-    this.logger.log(`   Total: ${problemDirs.length}`);
-    this.logger.log(`   ✅ Success: ${successful}`);
-    this.logger.log(`   ❌ Failed: ${failed}`);
 
     return {
       totalProblems: problemDirs.length,
@@ -341,195 +386,99 @@ export class IngestionService {
     };
   }
 
-  // ── Ingest from ZIP Upload ────────────────────
+  async ingestDataDirectory(dataDir?: string): Promise<BatchIngestionResult> {
+    return this.ingestAll(dataDir);
+  }
 
-  /**
-   * Giải nén file ZIP và nạp dữ liệu.
-   * ZIP phải có cấu trúc:
-   *   PROBLEM_CODE/Doc/... + PROBLEM_CODE/Test/...
-   * hoặc:
-   *   Doc/... + Test/... (tự động dùng tên ZIP làm mã bài)
-   */
+  // ── Ingest Uploaded ZIP File ──────────────────
+
   async ingestFromZip(
     zipBuffer: Buffer,
-    originalFileName: string,
+    originalFileName?: string,
     options?: IngestionOptions,
   ): Promise<IngestionResult[]> {
-    const tmpDir = path.join(
-      process.env.TEMP || '/tmp',
-      `hsg-ingest-${Date.now()}`,
+    const tempDir = path.join(
+      process.cwd(),
+      'tmp',
+      `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
 
     try {
+      fs.mkdirSync(tempDir, { recursive: true });
       const zip = new AdmZip(zipBuffer);
-      zip.extractAllTo(tmpDir, true);
-      this.logger.log(`📦 Extracted ZIP "${originalFileName}" to: ${tmpDir}`);
+      zip.extractAllTo(tempDir, true);
 
-      const results: IngestionResult[] = [];
-      const baseZipCode = path
-        .basename(originalFileName, path.extname(originalFileName))
-        .toUpperCase();
+      this.logger.log(`📦 Extracted ZIP to temporary dir: ${tempDir}`);
 
-      // Hàm đệ quy tìm tất cả thư mục chứa Doc hoặc Test
-      const findProblemDirs = (dir: string): string[] => {
-        const found: string[] = [];
-        if (!fs.existsSync(dir)) return found;
+      // Tìm tất cả các thư mục con có thể là bài tập
+      let targetDirs: string[] = [];
+      const entries = fs.readdirSync(tempDir, { withFileTypes: true });
+      const visibleEntries = entries.filter((e: any) => !e.name.startsWith('.') && !e.name.startsWith('__MACOSX'));
 
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        const hasDoc = Boolean(findSubdirectory(dir, ['Doc', 'doc', 'docs', 'Document', 'Documents']));
-        const hasTest = Boolean(findSubdirectory(dir, ['Test', 'test', 'tests', 'Tests']));
+      // Kiểm tra nếu tempDir chính là 1 thư mục bài tập (chứa Doc/ hoặc Test/)
+      const hasDirectDoc = Boolean(findSubdirectory(tempDir, ['Doc', 'doc', 'docs']));
+      const hasDirectTest = Boolean(findSubdirectory(tempDir, ['Test', 'test', 'tests']));
 
-        if (hasDoc || hasTest) {
-          found.push(dir);
-          return found;
-        }
-
-        for (const entry of entries) {
-          if (
-            entry.isDirectory() &&
-            !entry.name.startsWith('__') &&
-            !entry.name.startsWith('.')
-          ) {
-            found.push(...findProblemDirs(path.join(dir, entry.name)));
-          }
-        }
-        return found;
-      };
-
-      const problemDirs = findProblemDirs(tmpDir);
-
-      if (problemDirs.length === 0) {
-        this.logger.warn(`⚠️ No Doc or Test folder found in ZIP "${originalFileName}"`);
-        results.push({
-          problemCode: baseZipCode,
-          success: false,
-          message: `Không tìm thấy thư mục Doc/ hoặc Test/ trong file ZIP "${originalFileName}". Vui lòng kiểm tra lại cấu trúc nén.`,
-          details: {
-            testCasesCount: 0,
-            solutionCodesCount: 0,
-            pdfUploaded: false,
-            ioType: 'STANDARD',
-            ioFileName: null,
-          },
-        });
+      if (hasDirectDoc || hasDirectTest) {
+        targetDirs.push(tempDir);
       } else {
-        for (const pDir of problemDirs) {
-          const isRoot = pDir === tmpDir;
-          const codeOverride = isRoot ? baseZipCode : undefined;
-          const result = await this.ingestProblem(pDir, codeOverride, options);
-          results.push(result);
+        for (const entry of visibleEntries) {
+          if (entry.isDirectory()) {
+            targetDirs.push(path.join(tempDir, entry.name));
+          }
         }
       }
 
+      if (targetDirs.length === 0) {
+        targetDirs.push(tempDir);
+      }
+
+      const results: IngestionResult[] = [];
+      for (const dir of targetDirs) {
+        let code = path.basename(dir);
+        if (dir === tempDir && originalFileName) {
+          code = originalFileName.replace(/\.zip$/i, '');
+        }
+        const res = await this.ingestProblem(dir, code.toUpperCase(), options);
+        results.push(res);
+      }
+
       return results;
-    } catch (err: any) {
-      this.logger.error(`❌ ZIP extraction error: ${err.message}`);
-      return [
-        {
-          problemCode: path
-            .basename(originalFileName, path.extname(originalFileName))
-            .toUpperCase(),
-          success: false,
-          message: `Lỗi xử lý file ZIP: ${err.message}`,
-          details: {
-            testCasesCount: 0,
-            solutionCodesCount: 0,
-            pdfUploaded: false,
-            ioType: 'STANDARD',
-            ioFileName: null,
-          },
-        },
-      ];
     } finally {
-      this.cleanupDir(tmpDir);
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (cleanupErr) {
+        this.logger.warn(`⚠️ Could not clean temp dir: ${cleanupErr}`);
+      }
     }
   }
 
-  // ── Get Ingestion Status ──────────────────────
+  async ingestZipFile(
+    zipBuffer: Buffer,
+    overrideCode?: string,
+    options?: IngestionOptions,
+  ): Promise<IngestionResult> {
+    const results = await this.ingestFromZip(zipBuffer, overrideCode, options);
+    return results[0];
+  }
 
-  /**
-   * Kiểm tra trạng thái nạp dữ liệu của một bài tập.
-   */
   async getIngestionStatus(problemCode: string) {
     const problem = await this.prisma.problem.findUnique({
       where: { code: problemCode.toUpperCase() },
       include: {
-        _count: {
-          select: {
-            testCases: true,
-            solutionCodes: true,
-          },
-        },
+        _count: { select: { testCases: true, solutionCodes: true } },
       },
     });
 
-    if (!problem) {
-      return {
-        exists: false,
-        problemCode: problemCode.toUpperCase(),
-        message: 'Problem not found in database',
-      };
-    }
-
     return {
-      exists: true,
-      problemCode: problem.code,
-      title: problem.title,
-      ioType: problem.ioType,
-      ioFileName: problem.ioFileName,
-      pdfUrl: problem.pdfUrl,
-      totalTests: problem._count.testCases,
-      totalSolutions: problem._count.solutionCodes,
-      isPublished: problem.isPublished,
-      timeLimitMs: problem.timeLimitMs,
-      memoryLimitMb: problem.memoryLimitMb,
-      createdAt: problem.createdAt,
-      updatedAt: problem.updatedAt,
+      problemCode,
+      exists: Boolean(problem),
+      totalTests: problem?._count.testCases || 0,
+      totalSolutions: problem?._count.solutionCodes || 0,
+      pdfUrl: problem?.pdfUrl || null,
+      docxUrl: problem?.docxUrl || null,
     };
-  }
-
-  // ── Private Helpers ───────────────────────────
-
-  /**
-   * Đảm bảo thư mục Doc/ và Test/ có đúng tên
-   * (case sensitivity trên Linux)
-   */
-  private ensureDirectoryCase(
-    dir: string,
-    _problemCode: string,
-  ): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const lower = entry.name.toLowerCase();
-        if (lower === 'doc' && entry.name !== 'Doc') {
-          fs.renameSync(
-            path.join(dir, entry.name),
-            path.join(dir, 'Doc'),
-          );
-        }
-        if (lower === 'test' && entry.name !== 'Test') {
-          fs.renameSync(
-            path.join(dir, entry.name),
-            path.join(dir, 'Test'),
-          );
-        }
-      }
-    }
-  }
-
-  /**
-   * Xóa thư mục temp (recursive)
-   */
-  private cleanupDir(dir: string): void {
-    try {
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-        this.logger.log(`🗑️ Cleaned up temp: ${dir}`);
-      }
-    } catch {
-      this.logger.warn(`⚠️ Failed to clean up: ${dir}`);
-    }
   }
 }
