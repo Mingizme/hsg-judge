@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSSE } from './use-sse';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -51,8 +51,10 @@ export function useSubmission() {
       // Handle final compilation / complete event
       const completeEvent = events.find((e) => e.type === 'complete');
       if (completeEvent) {
-        setVerdict(completeEvent.data.verdict as string);
-        setScore((completeEvent.data.score as number) || 0);
+        const finalVerdict = completeEvent.data.verdict as string;
+        const finalScore = (completeEvent.data.score as number) ?? 0;
+        setVerdict(finalVerdict);
+        setScore(finalScore);
         setMaxScore((completeEvent.data.maxScore as number) || 100);
         setTotalTests((completeEvent.data.totalTests as number) || 0);
         setPassedTests((completeEvent.data.passedTests as number) || 0);
@@ -65,7 +67,31 @@ export function useSubmission() {
         }
       }
     }
-  }, [events]);
+
+    if (isComplete) {
+      setIsSubmitting(false);
+    }
+  }, [events, isComplete]);
+
+  // Fallback: Tự động tính toán verdict & điểm số nếu SSE complete event bị trễ hoặc mất kết nối
+  const effectiveVerdict = useMemo(() => {
+    if (verdict) return verdict;
+    if (results.length > 0 && (!isSubmitting || isComplete)) {
+      if (results.every((r) => r.verdict === 'AC')) return 'AC';
+      const failed = results.find((r) => r.verdict !== 'AC');
+      return failed?.verdict || 'WA';
+    }
+    return null;
+  }, [verdict, results, isSubmitting, isComplete]);
+
+  const effectiveScore = useMemo(() => {
+    if (score > 0) return score;
+    if (results.length > 0 && (!isSubmitting || isComplete)) {
+      const passed = results.filter((r) => r.verdict === 'AC').length;
+      return Math.round((passed / results.length) * 100);
+    }
+    return 0;
+  }, [score, results, isSubmitting, isComplete]);
 
   const submitCode = useCallback(async (code: string, problemCode: string) => {
     setIsSubmitting(true);
@@ -148,8 +174,8 @@ export function useSubmission() {
     isRunning,
     submissionId,
     results,
-    verdict,
-    score,
+    verdict: effectiveVerdict,
+    score: effectiveScore,
     maxScore,
     totalTests,
     passedTests,

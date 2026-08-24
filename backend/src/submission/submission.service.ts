@@ -273,21 +273,7 @@ export class SubmissionService {
       },
     });
 
-    // ── Update User Progress ──────────────────
-
-    await this.updateUserProgress(
-      (
-        await this.prisma.submission.findUnique({
-          where: { id: submissionId },
-        })
-      )!.userId,
-      problem.id,
-      score,
-      problem.maxScore,
-    );
-
-    // ── Emit complete event ───────────────────
-
+    // ── Emit complete event FIRST ──────────────
     sseSubject.next({
       type: 'complete',
       data: {
@@ -302,6 +288,24 @@ export class SubmissionService {
     });
 
     sseSubject.complete();
+
+    // ── Update User Progress Safely ───────────
+    try {
+      const sub = await this.prisma.submission.findUnique({
+        where: { id: submissionId },
+        select: { userId: true },
+      });
+      if (sub?.userId) {
+        await this.updateUserProgress(
+          sub.userId,
+          problem.id,
+          score,
+          problem.maxScore,
+        );
+      }
+    } catch (progressErr) {
+      this.logger.warn(`⚠️ User progress update warning: ${progressErr}`);
+    }
 
     // Cleanup SSE stream after short delay
     setTimeout(() => {
