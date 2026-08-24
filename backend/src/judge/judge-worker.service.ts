@@ -153,25 +153,48 @@ export class JudgeWorkerService {
 
     this.logger.log(`   ✅ Compilation OK`);
 
-    // ── Chạy từng test case ───────────────────
+    // ── Chạy các test cases đồng thời (Concurrency = 3) để tăng tốc độ chấm ──
+    const concurrency = 3;
+    const queue = [...testCases];
 
-    for (const tc of testCases) {
-      this.logger.log(
-        `   🧪 Judging Test ${String(tc.testNumber).padStart(2, '0')}...`,
-      );
+    const worker = async () => {
+      while (queue.length > 0) {
+        const tc = queue.shift();
+        if (!tc) break;
 
-      const result = await this.judgeTestCase(sourceCode, tc, config);
-      results.push(result);
+        this.logger.log(`   🧪 Judging Test ${String(tc.testNumber).padStart(2, '0')}...`);
+        try {
+          const result = await this.judgeTestCase(sourceCode, tc, config);
+          results.push(result);
+          onTestResult?.(result);
 
-      // Emit result cho SSE stream
-      onTestResult?.(result);
+          const icon = result.verdict === Verdict.AC ? '✅' : '❌';
+          this.logger.log(
+            `   ${icon} Test ${String(tc.testNumber).padStart(2, '0')}: ${result.verdict} (${result.executionTimeMs}ms)`,
+          );
+        } catch (tcErr) {
+          this.logger.error(`   ❌ Error on Test ${tc.testNumber}: ${tcErr}`);
+          const failResult: JudgeTestResult = {
+            testCaseId: tc.testCaseId,
+            testNumber: tc.testNumber,
+            verdict: Verdict.RTE,
+            executionTimeMs: 0,
+            memoryUsageKb: null,
+            actualOutput: '',
+            errorMessage: 'Lỗi thực thi test case',
+            diff: null,
+          };
+          results.push(failResult);
+          onTestResult?.(failResult);
+        }
+      }
+    };
 
-      const icon = result.verdict === Verdict.AC ? '✅' : '❌';
-      this.logger.log(
-        `   ${icon} Test ${String(tc.testNumber).padStart(2, '0')}: ${result.verdict} (${result.executionTimeMs}ms)`,
-      );
-    }
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, testCases.length) }, () => worker()),
+    );
 
+    results.sort((a, b) => a.testNumber - b.testNumber);
     return results;
   }
 

@@ -11,6 +11,7 @@ interface TestResultsProps {
   verdict: string | null;
   score: number;
   isSubmitting: boolean;
+  totalTestsExpected?: number;
 }
 
 const getVerdictConfig = (verdict: string) => {
@@ -24,7 +25,7 @@ const getVerdictConfig = (verdict: string) => {
   }
 };
 
-export function TestResults({ results, verdict, score, isSubmitting }: TestResultsProps) {
+export function TestResults({ results, verdict, score, isSubmitting, totalTestsExpected }: TestResultsProps) {
   if (results.length === 0 && !isSubmitting && !verdict) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
@@ -34,7 +35,7 @@ export function TestResults({ results, verdict, score, isSubmitting }: TestResul
   }
 
   const passedTests = results.filter(r => r.verdict === 'AC').length;
-  const totalTests = results.length || 1; // avoid / 0
+  const totalTests = totalTestsExpected || results.length || 1; // avoid / 0
   const maxTime = results.reduce((max, r) => Math.max(max, r.executionTimeMs ?? (r as any).timeMs ?? 0), 0);
 
   return (

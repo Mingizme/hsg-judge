@@ -24,7 +24,8 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
     isRunning, 
     results, 
     verdict, 
-    score 
+    score,
+    totalTests,
   } = useSubmission();
 
   const handleRun = async () => {
@@ -111,7 +112,7 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="results" className="h-full w-full outline-none data-[state=inactive]:hidden overflow-auto">
-          <TestResults results={results} verdict={verdict} score={score} isSubmitting={isSubmitting} />
+          <TestResults results={results} verdict={verdict} score={score} isSubmitting={isSubmitting} totalTestsExpected={totalTests} />
         </TabsPrimitive.Content>
       </div>
     </TabsPrimitive.Root>
