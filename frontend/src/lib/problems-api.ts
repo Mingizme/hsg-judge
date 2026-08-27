@@ -112,6 +112,56 @@ export interface JudgeHealth {
   timeAccuracy: string;
 }
 
+export interface DeleteProblemResult {
+  code: string;
+  title: string;
+  deleted: {
+    testCases: number;
+    subtasks: number;
+    solutionCodes: number;
+    submissions: number;
+    userProgress: number;
+    problemTags: number;
+  };
+  storage: {
+    configured: boolean;
+    removedFiles: number;
+    error: string | null;
+  };
+}
+
+/**
+ * Xoá hẳn một bài tập. Quyền được kiểm tra Ở BACKEND: `actorKey` (id nội bộ,
+ * supabaseId hoặc email) được tra trong bảng `User` và phải có `role = TEACHER`.
+ * Gửi khoá này qua cả query lẫn header vì DELETE mang body hay bị proxy bỏ.
+ */
+export async function deleteProblem(
+  code: string,
+  actorKey: string,
+): Promise<DeleteProblemResult> {
+  const res = await fetch(
+    `${API_BASE}/problems/${encodeURIComponent(code)}?userId=${encodeURIComponent(actorKey)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': actorKey,
+      },
+      body: JSON.stringify({ userId: actorKey }),
+    },
+  );
+
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(
+      json?.message ||
+        `Không xoá được bài ${code.toUpperCase()} (HTTP ${res.status})`,
+    );
+  }
+
+  return (json?.data ?? json) as DeleteProblemResult;
+}
 /** Tên máy chấm THẬT — trang chủ trước đây ghi cứng "Judge0 CE". */
 export async function fetchJudgeHealth(
   signal?: AbortSignal,

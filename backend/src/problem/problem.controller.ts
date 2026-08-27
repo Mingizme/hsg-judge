@@ -3,7 +3,18 @@
 // REST endpoints cho xem bài tập
 // ============================================
 
-import { Controller, Get, Param, Query, Res, Post, Put, Delete, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Res,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Headers,
+} from '@nestjs/common';
 import { ProblemService } from './problem.service';
 
 @Controller('problems')
@@ -87,6 +98,38 @@ export class ProblemController {
     @Param('subtaskId') subtaskId: string
   ) {
     return this.problemService.deleteSubtask(subtaskId);
+  }
+
+  /**
+   * DELETE /api/problems/:code — XOÁ HẲN một bài tập (chỉ Giáo viên).
+   *
+   * Khoá tài khoản thực hiện được nhận qua BA đường vì trình duyệt/proxy không
+   * phải lúc nào cũng cho DELETE mang body: `?userId=`, header `x-user-id`, hoặc
+   * body JSON. Vai trò luôn được tra lại trong CSDL (xem
+   * `ProblemService.requireTeacher`) nên client không thể tự phong quyền.
+   *
+   * Route này KHÔNG chồng lấn `DELETE :code/subtasks/:subtaskId` vì khác số
+   * đoạn đường dẫn.
+   */
+  @Delete(':code')
+  async deleteProblem(
+    @Param('code') code: string,
+    @Query('userId') userIdQuery?: string,
+    @Headers('x-user-id') userIdHeader?: string,
+    @Body() body?: { userId?: string; email?: string },
+  ) {
+    const actorKey =
+      body?.userId || body?.email || userIdQuery || userIdHeader || '';
+
+    const result = await this.problemService.deleteProblem(code, actorKey);
+
+    return {
+      statusCode: 200,
+      message:
+        `Đã xoá bài "${result.code}" cùng ${result.deleted.testCases} test, ` +
+        `${result.deleted.subtasks} subtask và ${result.deleted.submissions} lượt nộp.`,
+      data: result,
+    };
   }
 
   /**

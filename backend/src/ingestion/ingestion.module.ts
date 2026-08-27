@@ -6,6 +6,6 @@ import { SupabaseStorageService } from './supabase-storage.service';
 @Module({
   controllers: [IngestionController],
   providers: [IngestionService, SupabaseStorageService],
-  exports: [IngestionService],
+  exports: [IngestionService, SupabaseStorageService],
 })
 export class IngestionModule {}

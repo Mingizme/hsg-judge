@@ -158,4 +158,82 @@ export class SupabaseStorageService {
     const storagePath = `problems/${problemCode.toUpperCase()}/${fileName}`;
     return this.uploadFile(docxPath, storagePath);
   }
+
+  /**
+   * Liệt kê mọi tệp nằm dưới một tiền tố (đệ quy qua thư mục con).
+   *
+   * Supabase trả thư mục con dưới dạng entry có `id === null`, và mặc định chỉ
+   * lấy 100 entry một lần — bài có nhiều bản đề/hướng dẫn sẽ bị bỏ sót nếu
+   * không nâng `limit`.
+   */
+  private async listFilesRecursive(prefix: string): Promise<string[]> {
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .list(prefix, { limit: 1000 });
+
+    if (error) {
+      this.logger.warn(`List failed for ${prefix}: ${error.message}`);
+      return [];
+    }
+
+    const files: string[] = [];
+    for (const entry of data || []) {
+      const full = `${prefix}/${entry.name}`;
+      if (entry.id) {
+        files.push(full);
+      } else {
+        files.push(...(await this.listFilesRecursive(full)));
+      }
+    }
+    return files;
+  }
+
+  /**
+   * Xoá toàn bộ tệp đề/hướng dẫn của một bài trong Storage.
+   *
+   * Xoá theo THƯ MỤC `problems/<CODE>/` chứ không theo `pdfStoragePath` lưu
+   * trong DB: bảng `Problem` chỉ có `pdfStoragePath`, không có
+   * `docxStoragePath`, nên nếu chỉ xoá theo cột đó thì file .docx sẽ nằm lại
+   * trong bucket mãi mãi. Tên tệp giữ nguyên tên gốc tiếng Việt nên cũng không
+   * thể đoán được.
+   *
+   * Lỗi ở tầng Storage KHÔNG được làm hỏng việc xoá bài trong CSDL — hàm này
+   * chỉ báo lại kết quả để controller đưa vào thông điệp trả về.
+   */
+  async removeProblemFiles(problemCode: string): Promise<{
+    configured: boolean;
+    removed: string[];
+    error?: string;
+  }> {
+    if (!this.isConfigured()) {
+      return { configured: false, removed: [] };
+    }
+
+    const prefix = `problems/${problemCode.toUpperCase()}`;
+
+    try {
+      const paths = await this.listFilesRecursive(prefix);
+      if (paths.length === 0) {
+        return { configured: true, removed: [] };
+      }
+
+      const { error } = await this.supabase.storage
+        .from(this.bucket)
+        .remove(paths);
+
+      if (error) {
+        this.logger.error(
+          `Remove failed for ${prefix}: ${error.message}`,
+        );
+        return { configured: true, removed: [], error: error.message };
+      }
+
+      this.logger.log(`  🗑️ Removed ${paths.length} file(s) under ${prefix}`);
+      return { configured: true, removed: paths };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Remove error for ${prefix}: ${message}`);
+      return { configured: true, removed: [], error: message };
+    }
+  }
 }

@@ -31,6 +31,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DifficultyBadge } from '@/components/problems/difficulty-badge';
 import { API_BASE } from '@/lib/api-config';
+import { deleteProblem } from '@/lib/problems-api';
 
 interface IngestedProblem {
   code: string;
@@ -95,6 +96,19 @@ export default function TeacherPortalPage() {
   const [teacherSecretCode, setTeacherSecretCode] = useState('');
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
+
+  // Xoá bài: bài đang chờ xác nhận + ô nhập lại mã bài để tránh bấm nhầm
+  const [deleteTarget, setDeleteTarget] = useState<IngestedProblem | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  /**
+   * Khoá tài khoản gửi kèm lệnh xoá. Backend tra lại vai trò trong CSDL theo
+   * `id` / `supabaseId` / `email`, nên ưu tiên `id` nội bộ nếu đã đồng bộ xong.
+   */
+  const actorKey =
+    profile?.id || profile?.supabaseId || user?.id || user?.email || '';
 
   const fetchAnalytics = async (code: string) => {
     try {
@@ -294,6 +308,75 @@ export default function TeacherPortalPage() {
       type: 'success',
       text: `Đã lưu cấu hình thang điểm Subtask cho bài ${selectedProblem.code}!`,
     });
+  };
+
+  const openDeleteDialog = (prob: IngestedProblem) => {
+    setDeleteTarget(prob);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  };
+
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  };
+
+  /**
+   * Xoá bài THẬT (không chỉ ẩn đi). Backend dùng cascade nên toàn bộ test,
+   * subtask, lời giải mẫu và LƯỢT NỘP CỦA HỌC SINH cũng mất theo — đó là lý do
+   * phải nhập lại đúng mã bài mới bấm được nút xác nhận.
+   */
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    if (!actorKey) {
+      setDeleteError(
+        'Chưa xác định được tài khoản của bạn. Hãy tải lại trang hoặc đăng nhập lại.',
+      );
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const result = await deleteProblem(deleteTarget.code, actorKey);
+
+      setProblems((prev) => prev.filter((p) => p.code !== result.code));
+      if (selectedProblem?.code === result.code) {
+        setSelectedProblem(null);
+        setAnalytics(null);
+      }
+
+      const storageNote = !result.storage.configured
+        ? ' (Supabase Storage chưa cấu hình nên file đề vẫn còn trên máy chủ lưu trữ)'
+        : result.storage.error
+          ? ` (không xoá được file trên Storage: ${result.storage.error})`
+          : result.storage.removedFiles > 0
+            ? ` và ${result.storage.removedFiles} file đề/hướng dẫn trên Storage`
+            : '';
+
+      setUploadMessage({
+        type: 'success',
+        text:
+          `🗑️ Đã xoá bài "${result.code} — ${result.title}" cùng ` +
+          `${result.deleted.testCases} test, ${result.deleted.subtasks} subtask, ` +
+          `${result.deleted.solutionCodes} lời giải mẫu và ` +
+          `${result.deleted.submissions} lượt nộp của học sinh${storageNote}.`,
+      });
+
+      setDeleteTarget(null);
+      setDeleteConfirmText('');
+      await fetchProblems();
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : 'Xoá bài thất bại. Hãy thử lại.',
+      );
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleUpgradeRole = async (e: React.FormEvent) => {
@@ -658,20 +741,33 @@ export default function TeacherPortalPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-right font-sans space-x-2">
-                      <Link
-                        href={`/problems/${p.code}`}
-                        target="_blank"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
-                      >
-                        Mở bài
-                      </Link>
-                      <button
-                        onClick={() => handleOpenSubtaskModal(p)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs font-semibold transition"
-                      >
-                        <Sliders className="w-3 h-3" /> Cấu hình
-                      </button>
+                    <td className="px-4 py-3.5 text-right font-sans">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link
+                          href={`/problems/${p.code}`}
+                          target="_blank"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-xs font-semibold text-foreground transition"
+                        >
+                          Mở bài
+                        </Link>
+                        <button
+                          onClick={() => handleOpenSubtaskModal(p)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs font-semibold transition"
+                        >
+                          <Sliders className="w-3 h-3" /> Cấu hình
+                        </button>
+                        {/* Chỉ hiện với tài khoản Giáo viên — nhánh render này
+                            đã nằm sau `if (!isTeacher)` ở trên, và backend vẫn
+                            kiểm tra lại vai trò trong CSDL. */}
+                        <button
+                          onClick={() => openDeleteDialog(p)}
+                          title={`Xoá hẳn bài ${p.code} khỏi hệ thống`}
+                          aria-label={`Xoá bài ${p.code}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 text-xs font-semibold transition"
+                        >
+                          <Trash2 className="w-3 h-3" /> Xoá
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -981,6 +1077,137 @@ export default function TeacherPortalPage() {
                   <Save className="w-3.5 h-3.5" /> Lưu cấu hình
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* XÁC NHẬN XOÁ BÀI — thao tác không thể hoàn tác */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-problem-title"
+        >
+          <div className="bg-card border border-destructive/30 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-6 border-b flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3
+                    id="delete-problem-title"
+                    className="font-bold text-lg text-foreground"
+                  >
+                    Xoá bài tập {deleteTarget.code}?
+                  </h3>
+                  <p className="text-muted-foreground text-xs mt-0.5">
+                    {deleteTarget.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={closeDeleteDialog}
+                disabled={isDeleting}
+                aria-label="Đóng"
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-destructive">
+                  <ShieldAlert className="w-4 h-4" /> Không thể hoàn tác
+                </div>
+                <ul className="list-disc list-inside space-y-1 leading-relaxed text-muted-foreground">
+                  <li>
+                    Toàn bộ{' '}
+                    <strong className="text-foreground font-mono">
+                      {deleteTarget.totalTests}
+                    </strong>{' '}
+                    testcase và{' '}
+                    <strong className="text-foreground font-mono">
+                      {deleteTarget.totalSubtasks}
+                    </strong>{' '}
+                    subtask của bài.
+                  </li>
+                  <li>
+                    Lời giải mẫu (.cpp), đề PDF và hướng dẫn (.docx) đã nạp.
+                  </li>
+                  <li>
+                    <strong className="text-destructive">
+                      Mọi lượt nộp và điểm của học sinh
+                    </strong>{' '}
+                    ở bài này (bảng xếp hạng sẽ thay đổi theo).
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="delete-confirm-code"
+                  className="block font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                >
+                  Nhập lại mã bài{' '}
+                  <span className="font-mono text-destructive">
+                    {deleteTarget.code}
+                  </span>{' '}
+                  để xác nhận
+                </label>
+                <input
+                  id="delete-confirm-code"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  disabled={isDeleting}
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={deleteTarget.code}
+                  className="w-full px-3 py-2 rounded-xl border bg-background font-mono font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-destructive/50 disabled:opacity-60"
+                />
+              </div>
+
+              {deleteError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive flex items-start gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t bg-muted/20 flex items-center justify-end gap-2">
+              <button
+                onClick={closeDeleteDialog}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl border bg-background hover:bg-muted text-xs font-semibold text-foreground transition disabled:opacity-50"
+              >
+                Giữ lại bài này
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={
+                  isDeleting ||
+                  deleteConfirmText.trim().toUpperCase() !== deleteTarget.code.toUpperCase()
+                }
+                className="px-5 py-2 rounded-xl bg-destructive text-destructive-foreground font-semibold text-xs hover:bg-destructive/90 transition shadow-md flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Đang xoá...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" /> Xoá vĩnh viễn
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

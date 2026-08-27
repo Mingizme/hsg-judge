@@ -4,12 +4,22 @@
 // phục vụ Frontend Workspace & Teacher Portal
 // ============================================
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SupabaseStorageService } from '../ingestion/supabase-storage.service';
 
 @Injectable()
 export class ProblemService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: SupabaseStorageService,
+  ) {}
 
   /**
    * Lấy danh sách bài tập (có phân trang, filter độ khó/chủ đề)
@@ -277,6 +287,131 @@ export class ProblemService {
     return this.prisma.subtask.delete({
       where: { id: subtaskId },
     });
+  }
+
+  /**
+   * Xác định người đang thực hiện thao tác và bắt buộc phải là GIÁO VIÊN.
+   *
+   * Backend hiện chưa có tầng xác thực (không `UseGuards`, không xác minh JWT
+   * của Supabase), nên vai trò được tra CHÍNH TỪ CSDL theo khoá mà client gửi
+   * lên — giống cách `submission.service.ts` nhận diện người nộp bài: chấp nhận
+   * `id` nội bộ, `supabaseId` hoặc `email`. Nhờ vậy client KHÔNG thể tự khai
+   * `role: 'TEACHER'`; muốn xoá được thì tài khoản đó phải thật sự là giáo viên
+   * trong bảng `User`.
+   *
+   * Hạn chế còn lại (đã báo với người dùng): kẻ biết email của một giáo viên vẫn
+   * có thể mạo danh, vì không có token để đối chiếu. Chỉ khi bổ sung guard xác
+   * minh JWT thì lỗ hổng này mới đóng hoàn toàn.
+   */
+  private async requireTeacher(identifier?: string) {
+    const key = (identifier || '').trim();
+
+    if (!key) {
+      throw new UnauthorizedException(
+        'Thiếu thông tin tài khoản thực hiện. Hãy đăng nhập lại rồi thử lại.',
+      );
+    }
+
+    const actor = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ id: key }, { supabaseId: key }, { email: key.toLowerCase() }],
+      },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
+
+    if (!actor) {
+      throw new UnauthorizedException(
+        'Không tìm thấy tài khoản thực hiện thao tác. Hãy đăng nhập lại.',
+      );
+    }
+
+    if (actor.role !== UserRole.TEACHER) {
+      throw new ForbiddenException(
+        'Chỉ tài khoản Giáo viên mới có quyền xoá bài tập.',
+      );
+    }
+
+    return actor;
+  }
+
+  /**
+   * Xoá hẳn một bài tập khỏi hệ thống (chỉ giáo viên).
+   *
+   * Mọi quan hệ của `Problem` trong `schema.prisma` đều là `onDelete: Cascade`
+   * nên một lệnh `delete` sẽ kéo theo: testCases, subtasks, solutionCodes,
+   * submissions (+ submissionResults), userProgress và problemTags. Vì vậy phải
+   * đếm trước rồi báo lại cho giáo viên biết đã mất những gì — nhất là số lượt
+   * nộp của học sinh, thứ không thể phục hồi.
+   */
+  async deleteProblem(code: string, identifier?: string) {
+    const actor = await this.requireTeacher(identifier);
+    const normalizedCode = code.trim().toUpperCase();
+
+    const problem = await this.prisma.problem.findUnique({
+      where: { code: normalizedCode },
+      select: {
+        id: true,
+        code: true,
+        title: true,
+        pdfUrl: true,
+        docxUrl: true,
+        _count: {
+          select: {
+            testCases: true,
+            subtasks: true,
+            solutionCodes: true,
+            submissions: true,
+            userProgress: true,
+            problemTags: true,
+          },
+        },
+      },
+    });
+
+    if (!problem) {
+      throw new NotFoundException(
+        `Không tìm thấy bài tập "${normalizedCode}" để xoá.`,
+      );
+    }
+
+    const counts = problem._count;
+
+    // Dọn Storage TRƯỚC khi xoá bản ghi: xoá DB xong là mất luôn thông tin bài
+    // từng có file gì. Lỗi Storage không được chặn việc xoá bài (bucket có thể
+    // chưa cấu hình trên môi trường dev) — chỉ báo lại trong kết quả.
+    const hadFiles = Boolean(problem.pdfUrl || problem.docxUrl);
+    const storageResult: {
+      configured: boolean;
+      removed: string[];
+      error?: string;
+    } = hadFiles
+      ? await this.storage.removeProblemFiles(problem.code)
+      : { configured: this.storage.isConfigured(), removed: [] };
+
+    await this.prisma.problem.delete({ where: { id: problem.id } });
+
+    return {
+      code: problem.code,
+      title: problem.title,
+      deletedBy: {
+        id: actor.id,
+        email: actor.email,
+        displayName: actor.displayName,
+      },
+      deleted: {
+        testCases: counts.testCases,
+        subtasks: counts.subtasks,
+        solutionCodes: counts.solutionCodes,
+        submissions: counts.submissions,
+        userProgress: counts.userProgress,
+        problemTags: counts.problemTags,
+      },
+      storage: {
+        configured: storageResult.configured,
+        removedFiles: storageResult.removed.length,
+        error: storageResult.error ?? null,
+      },
+    };
   }
 
   /**
