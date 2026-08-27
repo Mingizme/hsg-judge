@@ -64,6 +64,7 @@ export function Navbar() {
   const navLinks = [
     { href: '/', label: 'Trang chủ' },
     { href: '/problems', label: 'Bài tập' },
+    { href: '/courses', label: 'Khóa học' },
     { href: '/leaderboard', label: 'Bảng xếp hạng' },
     ...(isTeacher ? [{ href: '/teacher', label: 'Quản trị (Giáo viên)' }] : []),
   ];
