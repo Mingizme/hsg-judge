@@ -425,3 +425,26 @@
   }
 }
 
+/* Ảnh & hình minh họa trong bài học */
+.lesson-prose figure,
+.lesson-prose .lesson-figure {
+  @apply my-8 flex flex-col items-center justify-center overflow-hidden rounded-2xl border border-border/80 bg-card p-3 shadow-md;
+}
+
+.lesson-prose figure a,
+.lesson-prose .lesson-figure a {
+  @apply block w-full overflow-hidden rounded-xl cursor-zoom-in transition hover:opacity-95 text-center;
+}
+
+.lesson-prose img,
+.lesson-prose .lesson-image {
+  @apply mx-auto max-h-[550px] w-auto max-w-full rounded-xl object-contain shadow-subtle;
+}
+
+.lesson-prose figcaption,
+.lesson-prose .lesson-figure figcaption {
+  @apply mt-2.5 text-center text-xs font-medium text-muted-foreground italic;
+}
+
+
+
