@@ -1,0 +1,671 @@
+{
+  "chapters": [
+    {
+      "id": "chuong-1",
+      "chapterNumber": 1,
+      "rawName": "CHƯƠNG 1 NHẬP MÔN C++ & KỸ NĂNG SINH TỒN TRONG CONTEST",
+      "title": "NHẬP MÔN C++ & KỸ NĂNG SINH TỒN TRONG CONTEST",
+      "lessonCount": 7,
+      "lessons": [
+        {
+          "id": "bai-1-huong-dan-su-dung-ide-gioi-thieu-khoa-hoc-cach-nop-bai",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 1,
+          "order": 1,
+          "title": "Bài 1 Hướng dẫn sử dụng IDE, Giới thiệu khóa học & Cách nộp bài",
+          "estimatedMinutes": 5,
+          "headingsCount": 5,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "Giới thiệu",
+              "id": "gioi-thieu"
+            },
+            {
+              "level": 2,
+              "text": "IDE là gì?",
+              "id": "ide-la-gi"
+            },
+            {
+              "level": 2,
+              "text": "Chương trình C++ đầu tiên",
+              "id": "chuong-trinh-c-dau-tien"
+            },
+            {
+              "level": 2,
+              "text": "# Hệ thống chấm bài hoạt động như thế nào?",
+              "id": "he-thong-cham-bai-hoat-dong-nhu-the-nao"
+            }
+          ]
+        },
+        {
+          "id": "bai-2-lam-quen-voi-c-kieu-du-lieu-va-bien",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 2,
+          "order": 2,
+          "title": "Bài 2 Làm quen với C++, Kiểu dữ liệu và Biến",
+          "estimatedMinutes": 5,
+          "headingsCount": 18,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "Mục tiêu",
+              "id": "muc-tieu"
+            },
+            {
+              "level": 2,
+              "text": "C++ là gì?",
+              "id": "c-la-gi"
+            },
+            {
+              "level": 2,
+              "text": "Cấu trúc của một chương trình C++",
+              "id": "cau-truc-cua-mot-chuong-trinh-c"
+            },
+            {
+              "level": 2,
+              "text": "Chương trình gồm các phần chính:",
+              "id": "chuong-trinh-gom-cac-phan-chinh"
+            }
+          ]
+        },
+        {
+          "id": "bai-3-cac-loi-kinh-dien-can-tranh-khi-lam-contest",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 3,
+          "order": 3,
+          "title": "Bài 3 Các lỗi kinh điển cần tránh khi làm Contest",
+          "estimatedMinutes": 5,
+          "headingsCount": 2,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "Bảng từ điển thuật ngữ",
+              "id": "bang-tu-dien-thuat-ngu"
+            },
+            {
+              "level": 2,
+              "text": "Mẹo tránh lỗi",
+              "id": "meo-tranh-loi"
+            }
+          ]
+        },
+        {
+          "id": "bai-4-ky-nang-doc-de-doan-thuat-toan-do-phuc-tap-thoi-gian-big-o-n",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 4,
+          "order": 4,
+          "title": "Bài 4 Kỹ năng Đọc đề đoán thuật toán & Độ phức tạp thời gian Big O(N)",
+          "estimatedMinutes": 5,
+          "headingsCount": 4,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "Ý tưởng chính",
+              "id": "y-tuong-chinh"
+            },
+            {
+              "level": 2,
+              "text": "Bảng tra nhanh: giới hạn nnn → độ phức tạp cho phép",
+              "id": "bang-tra-nhanh-gioi-han-nnn-do-phuc-tap-cho-phep"
+            },
+            {
+              "level": 2,
+              "text": "Công thức ước lượng nhanh",
+              "id": "cong-thuc-uoc-luong-nhanh"
+            },
+            {
+              "level": 2,
+              "text": "Mẹo áp dụng",
+              "id": "meo-ap-dung"
+            }
+          ]
+        },
+        {
+          "id": "bai-5-xu-ly-input-output-sieu-toc-trong-c-cac-ham-toan-hoc-pho-bien",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 5,
+          "order": 5,
+          "title": "Bài 5 Xử lý Input, Output siêu tốc trong C++ & Các hàm toán học phổ biến",
+          "estimatedMinutes": 5,
+          "headingsCount": 5,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Tăng tốc I/O trong C++",
+              "id": "1-tang-toc-i-o-trong-c"
+            },
+            {
+              "level": 2,
+              "text": "Khi cần xuất nhiều dòng",
+              "id": "khi-can-xuat-nhieu-dong"
+            },
+            {
+              "level": 2,
+              "text": "2. Các hàm toán học phổ biến (&lt;cmath&gt;)",
+              "id": "2-cac-ham-toan-hoc-pho-bien-lt-cmath-gt"
+            },
+            {
+              "level": 2,
+              "text": "Lưu ý khi dùng số nguyên lớn",
+              "id": "luu-y-khi-dung-so-nguyen-lon"
+            }
+          ]
+        },
+        {
+          "id": "bai-6-cau-truc-re-nhanh-cac-toan-tu-co-ban-trong-c",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 6,
+          "order": 6,
+          "title": "Bài 6 Cấu trúc rẽ nhánh & Các toán tử cơ bản trong C++",
+          "estimatedMinutes": 5,
+          "headingsCount": 9,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Cấu trúc rẽ nhánh (If-Else, Switch-Case)",
+              "id": "1-cau-truc-re-nhanh-if-else-switch-case"
+            },
+            {
+              "level": 2,
+              "text": "Switch - Case",
+              "id": "switch-case"
+            },
+            {
+              "level": 2,
+              "text": "2. Toán tử gán và toán tử toán học",
+              "id": "2-toan-tu-gan-va-toan-tu-toan-hoc"
+            },
+            {
+              "level": 2,
+              "text": "3. Toán tử so sánh và logic",
+              "id": "3-toan-tu-so-sanh-va-logic"
+            }
+          ]
+        },
+        {
+          "id": "bai-7-tu-khoa-define-va-typedef-trong-c",
+          "chapterId": "chuong-1",
+          "chapterNumber": 1,
+          "lessonNumber": 7,
+          "order": 7,
+          "title": "Bài 7 Từ khóa define và typedef trong C++",
+          "estimatedMinutes": 5,
+          "headingsCount": 7,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. define",
+              "id": "1-define"
+            },
+            {
+              "level": 3,
+              "text": "Định nghĩa hằng số",
+              "id": "dinh-nghia-hang-so"
+            },
+            {
+              "level": 3,
+              "text": "Định nghĩa macro (có tham số)",
+              "id": "dinh-nghia-macro-co-tham-so"
+            },
+            {
+              "level": 3,
+              "text": "Macro hay dùng trong thi đấu",
+              "id": "macro-hay-dung-trong-thi-dau"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chuong-2",
+      "chapterNumber": 2,
+      "rawName": "CHƯƠNG 2 ĐIỀU KHIỂN LUỒNG",
+      "title": "ĐIỀU KHIỂN LUỒNG",
+      "lessonCount": 3,
+      "lessons": [
+        {
+          "id": "cac-bai-toan-dac-trung-cua-vong-lap-in-hinh-dem-so",
+          "chapterId": "chuong-2",
+          "chapterNumber": 2,
+          "lessonNumber": 1,
+          "order": 1,
+          "title": "Các bài toán đặc trưng của vòng lặp (In hình, đếm số)",
+          "estimatedMinutes": 5,
+          "headingsCount": 8,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Dạng bài in hình (Pattern Printing)",
+              "id": "1-dang-bai-in-hinh-pattern-printing"
+            },
+            {
+              "level": 3,
+              "text": "Ví dụ: in hình tam giác vuông cân với nnn dòng",
+              "id": "vi-du-in-hinh-tam-giac-vuong-can-voi-nnn-dong"
+            },
+            {
+              "level": 3,
+              "text": "Ví dụ: in tam giác cân (dạng kim tự tháp)",
+              "id": "vi-du-in-tam-giac-can-dang-kim-tu-thap"
+            },
+            {
+              "level": 2,
+              "text": "2. Dạng bài đếm số (Counting)",
+              "id": "2-dang-bai-dem-so-counting"
+            }
+          ]
+        },
+        {
+          "id": "cau-truc-ham-function-trong-c-cach-truyen-tham-so",
+          "chapterId": "chuong-2",
+          "chapterNumber": 2,
+          "lessonNumber": 2,
+          "order": 2,
+          "title": "Cấu trúc Hàm (Function) trong C++. Cách truyền tham số",
+          "estimatedMinutes": 5,
+          "headingsCount": 11,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Cấu trúc cơ bản của hàm",
+              "id": "1-cau-truc-co-ban-cua-ham"
+            },
+            {
+              "level": 2,
+              "text": "2. Khai báo nguyên mẫu hàm (Function Prototype)",
+              "id": "2-khai-bao-nguyen-mau-ham-function-prototype"
+            },
+            {
+              "level": 2,
+              "text": "3. Hàm không trả về giá trị (void)",
+              "id": "3-ham-khong-tra-ve-gia-tri-void"
+            },
+            {
+              "level": 2,
+              "text": "4. Các cách truyền tham số",
+              "id": "4-cac-cach-truyen-tham-so"
+            }
+          ]
+        },
+        {
+          "id": "vong-lap-for-while-do-while-xu-ly-vong-lap-long-nhau",
+          "chapterId": "chuong-2",
+          "chapterNumber": 2,
+          "lessonNumber": 3,
+          "order": 3,
+          "title": "Vòng lặp For, While, Do-While & Xử lý vòng lặp lồng nhau",
+          "estimatedMinutes": 5,
+          "headingsCount": 8,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Vòng lặp for",
+              "id": "1-vong-lap-for"
+            },
+            {
+              "level": 2,
+              "text": "2. Vòng lặp while",
+              "id": "2-vong-lap-while"
+            },
+            {
+              "level": 2,
+              "text": "3. Vòng lặp do-while",
+              "id": "3-vong-lap-do-while"
+            },
+            {
+              "level": 2,
+              "text": "So sánh nhanh",
+              "id": "so-sanh-nhanh"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chuong-3",
+      "chapterNumber": 3,
+      "rawName": "CHƯƠNG 3 TOÁN HỌC TRONG THI ĐẤU (NUMBER THEORY)",
+      "title": "TOÁN HỌC TRONG THI ĐẤU (NUMBER THEORY)",
+      "lessonCount": 5,
+      "lessons": [
+        {
+          "id": "gcm-lcm-to-hop-hoan-vi-chinh-hop-la-gi",
+          "chapterId": "chuong-3",
+          "chapterNumber": 3,
+          "lessonNumber": 1,
+          "order": 1,
+          "title": "GCM, LCM, Tổ hợp, Hoán Vị, Chỉnh Hợp là gì",
+          "estimatedMinutes": 69,
+          "headingsCount": 108,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Ước chung lớn nhất",
+              "id": "1-uoc-chung-lon-nhat"
+            },
+            {
+              "level": 3,
+              "text": "1.1. Ước chung là gì?",
+              "id": "1-1-uoc-chung-la-gi"
+            },
+            {
+              "level": 2,
+              "text": "2. Cách tìm GCD bằng phương pháp duyệt",
+              "id": "2-cach-tim-gcd-bang-phuong-phap-duyet"
+            },
+            {
+              "level": 2,
+              "text": "3. Thuật toán Euclid",
+              "id": "3-thuat-toan-euclid"
+            }
+          ]
+        },
+        {
+          "id": "ly-thuyet-so-co-ban-phan-1",
+          "chapterId": "chuong-3",
+          "chapterNumber": 3,
+          "lessonNumber": 2,
+          "order": 2,
+          "title": "Lý thuyết số cơ bản (Phần 1)",
+          "estimatedMinutes": 5,
+          "headingsCount": 6,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Khái niệm Ước số và Bội số",
+              "id": "1-khai-niem-uoc-so-va-boi-so"
+            },
+            {
+              "level": 2,
+              "text": "2. Số nguyên tố và Hợp số",
+              "id": "2-so-nguyen-to-va-hop-so"
+            },
+            {
+              "level": 2,
+              "text": "3. Thuật toán kiểm tra số nguyên tố $O(sqrt{N})$",
+              "id": "3-thuat-toan-kiem-tra-so-nguyen-to-o-sqrt-n"
+            },
+            {
+              "level": 2,
+              "text": "4. Thuật toán đếm và liệt kê toàn bộ ước số trong $O(sqrt{N})$",
+              "id": "4-thuat-toan-dem-va-liet-ke-toan-bo-uoc-so-trong-o-sqrt-n"
+            }
+          ]
+        },
+        {
+          "id": "ly-thuyet-so-co-ban-phan-2",
+          "chapterId": "chuong-3",
+          "chapterNumber": 3,
+          "lessonNumber": 3,
+          "order": 3,
+          "title": "Lý thuyết số cơ bản (Phần 2)",
+          "estimatedMinutes": 33,
+          "headingsCount": 51,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Phân tích thừa số nguyên tố",
+              "id": "1-phan-tich-thua-so-nguyen-to"
+            },
+            {
+              "level": 3,
+              "text": "1.1. Thừa số nguyên tố là gì?",
+              "id": "1-1-thua-so-nguyen-to-la-gi"
+            },
+            {
+              "level": 2,
+              "text": "2. Phân tích thừa số nguyên tố bằng cách thử chia",
+              "id": "2-phan-tich-thua-so-nguyen-to-bang-cach-thu-chia"
+            },
+            {
+              "level": 3,
+              "text": "2.1. Ý tưởng",
+              "id": "2-1-y-tuong"
+            }
+          ]
+        },
+        {
+          "id": "dinh-ly-lucas-cong-thuc-legendre-luy-thua-nhi-phan-va-ky-thuat-stars-and-bars",
+          "chapterId": "chuong-3",
+          "chapterNumber": 3,
+          "lessonNumber": 4,
+          "order": 4,
+          "title": "Định lý Lucas, công thức Legendre, lũy thừa nhị phân và kỹ thuật Stars and Bars",
+          "estimatedMinutes": 70,
+          "headingsCount": 106,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "82. Bài toán tính lũy thừa",
+              "id": "82-bai-toan-tinh-luy-thua"
+            },
+            {
+              "level": 2,
+              "text": "83. Ý tưởng của lũy thừa nhị phân",
+              "id": "83-y-tuong-cua-luy-thua-nhi-phan"
+            },
+            {
+              "level": 2,
+              "text": "84. Biểu diễn số mũ dưới dạng nhị phân",
+              "id": "84-bieu-dien-so-mu-duoi-dang-nhi-phan"
+            },
+            {
+              "level": 2,
+              "text": "85. Mô phỏng lũy thừa nhị phân",
+              "id": "85-mo-phong-luy-thua-nhi-phan"
+            }
+          ]
+        },
+        {
+          "id": "dong-du-nghich-dao-modulo-dinh-ly-fermat-dinh-ly-euler-va-tam-giac-pascal",
+          "chapterId": "chuong-3",
+          "chapterNumber": 3,
+          "lessonNumber": 5,
+          "order": 5,
+          "title": "Đồng dư, nghịch đảo modulo, định lý Fermat, định lý Euler và tam giác Pascal",
+          "estimatedMinutes": 80,
+          "headingsCount": 117,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Giới thiệu",
+              "id": "1-gioi-thieu"
+            },
+            {
+              "level": 2,
+              "text": "2. Phép chia lấy dư",
+              "id": "2-phep-chia-lay-du"
+            },
+            {
+              "level": 3,
+              "text": "Ví dụ",
+              "id": "vi-du"
+            },
+            {
+              "level": 2,
+              "text": "3. Số âm trong phép modulo C++",
+              "id": "3-so-am-trong-phep-modulo-c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chuong-4",
+      "chapterNumber": 4,
+      "rawName": "CHƯƠNG 4 MẢNG 1 CHIỀU",
+      "title": "MẢNG 1 CHIỀU",
+      "lessonCount": 5,
+      "lessons": [
+        {
+          "id": "kien-thuc-co-ban-va-ky-thuat-duyet-mang",
+          "chapterId": "chuong-4",
+          "chapterNumber": 4,
+          "lessonNumber": 1,
+          "order": 1,
+          "title": "Kiến thức cơ bản và kỹ thuật duyệt mảng",
+          "estimatedMinutes": 42,
+          "headingsCount": 84,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Mảng một chiều là gì?",
+              "id": "1-mang-mot-chieu-la-gi"
+            },
+            {
+              "level": 2,
+              "text": "2. Vì sao cần sử dụng mảng?",
+              "id": "2-vi-sao-can-su-dung-mang"
+            },
+            {
+              "level": 2,
+              "text": "3. Đặc điểm của mảng một chiều",
+              "id": "3-dac-diem-cua-mang-mot-chieu"
+            },
+            {
+              "level": 2,
+              "text": "4. Khai báo mảng",
+              "id": "4-khai-bao-mang"
+            }
+          ]
+        },
+        {
+          "id": "ky-thuat-hai-con-tro-two-pointers",
+          "chapterId": "chuong-4",
+          "chapterNumber": 4,
+          "lessonNumber": 2,
+          "order": 2,
+          "title": "Kỹ thuật Hai con trỏ - Two Pointers",
+          "estimatedMinutes": 5,
+          "headingsCount": 4,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Bản chất kỹ thuật Hai con trỏ (Two Pointers)",
+              "id": "1-ban-chat-ky-thuat-hai-con-tro-two-pointers"
+            },
+            {
+              "level": 2,
+              "text": "2. Mô hình 1: Hai con trỏ đối hướng (Opposite Direction)",
+              "id": "2-mo-hinh-1-hai-con-tro-doi-huong-opposite-direction"
+            },
+            {
+              "level": 2,
+              "text": "3. Mô hình 2: Hai con trỏ đồng hướng / Cửa sổ trượt (Sliding Window)",
+              "id": "3-mo-hinh-2-hai-con-tro-dong-huong-cua-so-truot-sliding-window"
+            },
+            {
+              "level": 2,
+              "text": "4. Kỹ thuật Trộn hai mảng đã sắp xếp (Merge Two Sorted Arrays)",
+              "id": "4-ky-thuat-tron-hai-mang-da-sap-xep-merge-two-sorted-arrays"
+            }
+          ]
+        },
+        {
+          "id": "mang-cong-don-mot-chieu-prefix-sum",
+          "chapterId": "chuong-4",
+          "chapterNumber": 4,
+          "lessonNumber": 3,
+          "order": 3,
+          "title": "Mảng cộng dồn một chiều - Prefix Sum",
+          "estimatedMinutes": 55,
+          "headingsCount": 55,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Bài toán đặt ra",
+              "id": "1-bai-toan-dat-ra"
+            },
+            {
+              "level": 2,
+              "text": "9.1. Cách xây dựng sau khi nhập mảng",
+              "id": "9-1-cach-xay-dung-sau-khi-nhap-mang"
+            },
+            {
+              "level": 2,
+              "text": "9.2. Vừa nhập vừa xây dựng Prefix Sum",
+              "id": "9-2-vua-nhap-vua-xay-dung-prefix-sum"
+            },
+            {
+              "level": 2,
+              "text": "Bài toán",
+              "id": "bai-toan"
+            }
+          ]
+        },
+        {
+          "id": "mang-danh-dau-va-mang-dem",
+          "chapterId": "chuong-4",
+          "chapterNumber": 4,
+          "lessonNumber": 4,
+          "order": 4,
+          "title": "Mảng đánh dấu và mảng đếm",
+          "estimatedMinutes": 56,
+          "headingsCount": 84,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Giới thiệu",
+              "id": "1-gioi-thieu"
+            },
+            {
+              "level": 2,
+              "text": "Đề bài",
+              "id": "de-bai"
+            },
+            {
+              "level": 2,
+              "text": "Cách duyệt tuyến tính",
+              "id": "cach-duyet-tuyen-tinh"
+            },
+            {
+              "level": 2,
+              "text": "Đề bài",
+              "id": "de-bai"
+            }
+          ]
+        },
+        {
+          "id": "sang-so-nguyen-to-eratosthenes",
+          "chapterId": "chuong-4",
+          "chapterNumber": 4,
+          "lessonNumber": 5,
+          "order": 5,
+          "title": "Sàng số nguyên tố Eratosthenes",
+          "estimatedMinutes": 5,
+          "headingsCount": 4,
+          "previewHeadings": [
+            {
+              "level": 2,
+              "text": "1. Ý tưởng thuật toán Sàng Eratosthenes",
+              "id": "1-y-tuong-thuat-toan-sang-eratosthenes"
+            },
+            {
+              "level": 2,
+              "text": "2. Cài đặt chuẩn Sàng Eratosthenes",
+              "id": "2-cai-dat-chuan-sang-eratosthenes"
+            },
+            {
+              "level": 2,
+              "text": "3. Sàng Ước nguyên tố nhỏ nhất (MinPrime / LPF)",
+              "id": "3-sang-uoc-nguyen-to-nho-nhat-minprime-lpf"
+            },
+            {
+              "level": 2,
+              "text": "4. Sàng phân đoạn (Segmented Sieve) cho đoạn $[L, R]$",
+              "id": "4-sang-phan-doan-segmented-sieve-cho-doan-l-r"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "totalLessons": 20
+}
