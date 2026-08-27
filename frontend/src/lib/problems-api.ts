@@ -70,6 +70,35 @@ export function mapProblemSummary(raw: Record<string, any>): ProblemSummary {
   };
 }
 
+const CACHE_KEY_PREFIX = 'hsg_problems_cache_';
+
+export function getCachedProblemList(query: ProblemListQuery = {}): ProblemListResult | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const key = `${CACHE_KEY_PREFIX}${query.page || 1}_${query.limit || 20}_${query.difficulty || ''}_${query.search || ''}`;
+    const item = sessionStorage.getItem(key);
+    if (!item) return null;
+    const parsed = JSON.parse(item);
+    // Cache valid for 30 minutes
+    if (Date.now() - parsed.timestamp < 30 * 60 * 1000) {
+      return parsed.data as ProblemListResult;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function setCachedProblemList(query: ProblemListQuery, data: ProblemListResult): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const key = `${CACHE_KEY_PREFIX}${query.page || 1}_${query.limit || 20}_${query.difficulty || ''}_${query.search || ''}`;
+    sessionStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), data }));
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Lọc và phân trang Ở PHÍA SERVER. Trang danh sách trước đây tải toàn bộ bài
  * rồi filter bằng JavaScript — vừa tải thừa, vừa sai khi số bài vượt trang đầu.
@@ -98,12 +127,15 @@ export async function fetchProblemList(
       : [];
   const pagination = body?.pagination ?? {};
 
-  return {
+  const result: ProblemListResult = {
     problems: rawList.map(mapProblemSummary),
     page: toNumber(pagination.page, 1),
     totalPages: toNumber(pagination.totalPages, 1),
     total: toNumber(pagination.total, rawList.length),
   };
+
+  setCachedProblemList(query, result);
+  return result;
 }
 
 export interface JudgeHealth {

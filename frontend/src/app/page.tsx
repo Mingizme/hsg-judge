@@ -20,11 +20,13 @@ import {
   API_BASE,
   fetchJudgeHealth,
   fetchProblemList,
+  getCachedProblemList,
   type JudgeHealth,
   type ProblemSummary,
 } from '@/lib/problems-api';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
+import { RefreshCw, Zap } from 'lucide-react';
 
 const HEATMAP_DAYS = 30;
 const PREVIEW_COUNT = 6;
@@ -85,34 +87,54 @@ function heatClass(count: number): string {
 
 export default function Home() {
   const { user } = useAuth();
-  const [problems, setProblems] = useState<ProblemSummary[]>([]);
-  const [totalProblems, setTotalProblems] = useState<number | null>(null);
-  const [loadingProblems, setLoadingProblems] = useState(true);
+  
+  // Tải ngay từ bộ nhớ đệm (nếu có) để người dùng không phải nhìn ô trống khi máy chủ Render đang thức dậy
+  const cached = typeof window !== 'undefined' ? getCachedProblemList({ page: 1, limit: PREVIEW_COUNT }) : null;
+  const [problems, setProblems] = useState<ProblemSummary[]>(cached?.problems ?? []);
+  const [totalProblems, setTotalProblems] = useState<number | null>(cached?.total ?? null);
+  const [loadingProblems, setLoadingProblems] = useState(!cached);
+  const [isWakingServer, setIsWakingServer] = useState(false);
   const [judge, setJudge] = useState<JudgeHealth | null>(null);
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [heatmap, setHeatmap] = useState<ActivityDay[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  /** Danh sách xem trước + TỔNG SỐ BÀI THẬT (trước đây hiển thị `problems.length`
-   *  của một lần fetch `?limit=6`, nên kho 40 bài vẫn khoe "6 bài"). */
+  /** Danh sách xem trước + TỔNG SỐ BÀI THẬT */
   useEffect(() => {
     const controller = new AbortController();
+    
+    // Nếu sau 3.5s chưa có kết quả (máy chủ Render đang khởi động lại từ sleep), hiển thị thông báo nhẹ nhàng
+    const wakingTimer = setTimeout(() => {
+      if (loadingProblems || !judge) {
+        setIsWakingServer(true);
+      }
+    }, 3500);
 
     fetchProblemList({ page: 1, limit: PREVIEW_COUNT }, controller.signal)
       .then((data) => {
+        clearTimeout(wakingTimer);
         setProblems(data.problems);
         setTotalProblems(data.total);
         setLoadingProblems(false);
+        setIsWakingServer(false);
       })
       .catch(() => {
+        clearTimeout(wakingTimer);
         if (controller.signal.aborted) return;
         setLoadingProblems(false);
       });
 
-    // Tên máy chấm THẬT thay cho chuỗi "Judge0 CE" ghi cứng
-    fetchJudgeHealth(controller.signal).then(setJudge);
+    // Tên máy chấm THẬT
+    fetchJudgeHealth(controller.signal).then((j) => {
+      setJudge(j);
+      if (j) setIsWakingServer(false);
+    });
 
-    return () => controller.abort();
-  }, []);
+    return () => {
+      clearTimeout(wakingTimer);
+      controller.abort();
+    };
+  }, [reloadKey]);
 
   useEffect(() => {
     if (!user) {
@@ -135,7 +157,7 @@ export default function Home() {
       });
 
     return () => controller.abort();
-  }, [user]);
+  }, [user, reloadKey]);
 
   const stats = [
     {
@@ -208,6 +230,36 @@ export default function Home() {
           </Link>
         </div>
       </motion.section>
+
+      {/* Thông báo khởi động máy chủ (khi Render Free Tier đang cold-start) */}
+      {isWakingServer && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-warning flex flex-col sm:flex-row items-center justify-between gap-3 shadow-subtle"
+        >
+          <div className="flex items-center gap-3">
+            <RefreshCw className="h-5 w-5 animate-spin shrink-0 text-warning" />
+            <div className="text-xs sm:text-sm">
+              <span className="font-bold">Máy chủ chấm bài đang khởi động (Cold-start ~30s)...</span>
+              <p className="text-muted-foreground text-[11px] sm:text-xs mt-0.5">
+                Máy chủ miễn phí trên Render tự ngủ khi không có lượt truy cập. Dữ liệu và bài tập sẽ tự động hiển thị sau giây lát!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsWakingServer(false);
+              setReloadKey((k) => k + 1);
+            }}
+            className="shrink-0 rounded-xl bg-warning/20 hover:bg-warning/30 px-3 py-1.5 text-xs font-semibold text-warning transition flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Tải lại ngay</span>
+          </button>
+        </motion.div>
+      )}
 
       {/* Thẻ số liệu */}
       <motion.section

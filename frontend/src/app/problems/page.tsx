@@ -3,14 +3,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, RefreshCw, BookOpen, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { ProblemCard } from '@/components/problems/problem-card';
-import { fetchProblemList, type ProblemListResult } from '@/lib/problems-api';
+import { fetchProblemList, getCachedProblemList, type ProblemListResult } from '@/lib/problems-api';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 12;
 
 export default function ProblemsPage() {
-  const [result, setResult] = useState<ProblemListResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Đọc ngay từ cache (nếu có) để người dùng không phải chờ màn hình trắng
+  const initialCached = typeof window !== 'undefined'
+    ? getCachedProblemList({ page: 1, limit: PAGE_SIZE, difficulty: '', search: '' })
+    : null;
+
+  const [result, setResult] = useState<ProblemListResult | null>(initialCached);
+  const [loading, setLoading] = useState(!initialCached);
+  const [isWakingServer, setIsWakingServer] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
@@ -29,24 +35,29 @@ export default function ProblemsPage() {
   }, [searchInput]);
 
   /**
-   * Lọc / phân trang do BACKEND làm. Trước đây trang này tải toàn bộ bài (không
-   * tham số) rồi filter bằng JavaScript, nên khi kho đề vượt trang mặc định thì
-   * tìm kiếm bỏ sót bài mà người dùng không hề biết.
+   * Lọc / phân trang do BACKEND làm.
    */
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
 
+    const wakingTimer = setTimeout(() => {
+      setIsWakingServer(true);
+    }, 3500);
+
     fetchProblemList(
       { page, limit: PAGE_SIZE, difficulty, search },
       controller.signal,
     )
       .then((data) => {
+        clearTimeout(wakingTimer);
         setResult(data);
         setLoading(false);
+        setIsWakingServer(false);
       })
       .catch((err: unknown) => {
+        clearTimeout(wakingTimer);
         if (controller.signal.aborted) return;
         setError(
           err instanceof Error
@@ -54,9 +65,13 @@ export default function ProblemsPage() {
             : 'Không kết nối được tới máy chủ chấm bài.',
         );
         setLoading(false);
+        setIsWakingServer(false);
       });
 
-    return () => controller.abort();
+    return () => {
+      clearTimeout(wakingTimer);
+      controller.abort();
+    };
   }, [page, difficulty, search, reloadKey]);
 
   const problems = result?.problems ?? [];
@@ -130,6 +145,32 @@ export default function ProblemsPage() {
           <option value="HARD">Khó</option>
         </select>
       </div>
+
+      {/* Thông báo khởi động máy chủ (khi Render Free Tier đang cold-start) */}
+      {isWakingServer && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-warning flex flex-col sm:flex-row items-center justify-between gap-3 shadow-subtle">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="h-5 w-5 animate-spin shrink-0 text-warning" />
+            <div className="text-xs sm:text-sm">
+              <span className="font-bold">Máy chủ chấm bài đang khởi động (Cold-start ~30s)...</span>
+              <p className="text-muted-foreground text-[11px] sm:text-xs mt-0.5">
+                Máy chủ miễn phí trên Render tự ngủ khi không có lượt truy cập. Dữ liệu sẽ tự động tải sau giây lát!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsWakingServer(false);
+              setReloadKey((k) => k + 1);
+            }}
+            className="shrink-0 rounded-xl bg-warning/20 hover:bg-warning/30 px-3 py-1.5 text-xs font-semibold text-warning transition flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Tải lại</span>
+          </button>
+        </div>
+      )}
 
       {/* Danh sách */}
       {error ? (
