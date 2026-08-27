@@ -17,7 +17,8 @@
  *   4. KHÔNG bịa thêm bất cứ câu lệnh nào. Không đọc được thì không vẽ.
  */
 
-import { Node, Edge, MarkerType } from 'reactflow';
+import type { Node, Edge } from 'reactflow';
+import { MarkerType } from 'reactflow';
 
 // ── Kiểu dữ liệu ──────────────────────────────
 
@@ -312,7 +313,10 @@ function parseStatements(c: Cursor, stopAtBrace: boolean): Block[] {
     }
     const kw = peekWord(c);
     if (kw === 'if') {
-      out.push(parseIf(c));
+      const ifBlock = parseIf(c);
+      if (ifBlock.kind === 'if' && (ifBlock.then.length > 0 || ifBlock.else.length > 0)) {
+        out.push(ifBlock);
+      }
       continue;
     }
     if (kw === 'for' || kw === 'while') {
@@ -488,6 +492,8 @@ interface Exit {
   id: string;
   label?: string;
   tone?: EdgeTone;
+  sourceHandle?: string;
+  targetHandle?: string;
 }
 
 interface PlaceResult {
@@ -556,23 +562,47 @@ function addNode(
 }
 
 function connect(ctx: Ctx, from: Exit[], to: string): void {
+  const seen = new Set<string>();
+
   for (const ex of from) {
     const tone: EdgeTone = ex.tone ?? 'flow';
     const color = ctx.palette[tone];
     // Chữ nhãn dùng tông sáng vì huy hiệu luôn nền tối.
     const ink = PALETTE.dark[tone];
+
+    const sourceHandle =
+      ex.sourceHandle ??
+      (tone === 'back'
+        ? 'left-source'
+        : tone === 'true'
+          ? 'left-source'
+          : tone === 'false'
+            ? 'right-source'
+            : 'bottom-source');
+
+    const targetHandle =
+      ex.targetHandle ??
+      (tone === 'back' ? 'left-target' : 'top-target');
+
+    // Chống tạo trùng lặp các cạnh giống hệt nhau hoặc đè nhãn lên cùng một đường
+    const edgeKey = `${ex.id}__${to}__${sourceHandle}__${targetHandle}`;
+    if (seen.has(edgeKey)) continue;
+    seen.add(edgeKey);
+
     ctx.edges.push({
       id: `e-${ex.id}__${to}__${ctx.edges.length}`,
       source: ex.id,
       target: to,
+      sourceHandle,
+      targetHandle,
       type: 'smoothstep',
       animated: tone === 'back',
       label: ex.label,
       // Huy hiệu bo góc nền tối thay cho ô chữ nhật trắng mặc định.
       labelShowBg: Boolean(ex.label),
-      labelBgPadding: [7, 3],
+      labelBgPadding: [8, 4],
       labelBgBorderRadius: 8,
-      labelBgStyle: { fill: ctx.badgeBg, fillOpacity: 0.92, stroke: color, strokeWidth: 0.75 },
+      labelBgStyle: { fill: ctx.badgeBg, fillOpacity: 0.95, stroke: color, strokeWidth: 1 },
       labelStyle: { fill: ink, fontSize: 10, fontWeight: 700 },
       style: { stroke: color, strokeWidth: tone === 'flow' ? 1.6 : 2 },
       markerEnd: {
@@ -639,9 +669,13 @@ function placeBlock(
       const loop = ctx.loopStack[ctx.loopStack.length - 1];
       if (loop) {
         if (isContinue) {
-          connect(ctx, [{ id, label: '↻ Quay lại', tone: 'back' }], loop.id);
+          connect(
+            ctx,
+            [{ id, label: '↻ Quay lại', tone: 'back', sourceHandle: 'left-source', targetHandle: 'left-target' }],
+            loop.id,
+          );
         } else {
-          loop.breaks.push({ id, tone: 'false' });
+          loop.breaks.push({ id, tone: 'false', sourceHandle: 'right-source', targetHandle: 'top-target' });
         }
       }
       return { y: y + ROW_H, exits: [], entry: id };
@@ -664,7 +698,7 @@ function placeBlock(
       const n = (ctx.counters.action ?? 1) - 1;
       if (n <= 1) ctx.aliases[`node-act-${n}`] = id;
     }
-    return { y: y + ROW_H, exits: [{ id }], entry: id };
+    return { y: y + ROW_H, exits: [{ id, sourceHandle: 'bottom-source', targetHandle: 'top-target' }], entry: id };
   }
 
   if (b.kind === 'if') {
@@ -683,32 +717,45 @@ function placeBlock(
     const elseSpan = b.else.length ? measureList(b.else) : 1;
     const bodyY = y + ROW_H;
 
-    const t = placeList(ctx, b.then, left, thenSpan, bodyY, [
-      { id, label: '✓ Đúng', tone: 'true' },
-    ]);
-    let exits = [...t.exits];
-    let maxY = t.y;
-
-    if (b.else.length) {
-      const e = placeList(ctx, b.else, left + thenSpan, elseSpan, bodyY, [
-        { id, label: '✗ Sai', tone: 'false' },
+    if (b.then.length > 0) {
+      const t = placeList(ctx, b.then, left, thenSpan, bodyY, [
+        { id, label: '✓ Đúng', tone: 'true' as EdgeTone, sourceHandle: 'left-source', targetHandle: 'top-target' },
       ]);
-      exits = exits.concat(e.exits);
-      maxY = Math.max(maxY, e.y);
-      if (!ctx.aliases['node-false-0'] && e.entry) {
-        ctx.aliases['node-false-0'] = e.entry;
+      let exits = [...t.exits];
+      let maxY = t.y;
+
+      if (b.else.length > 0) {
+        const e = placeList(ctx, b.else, left + thenSpan, elseSpan, bodyY, [
+          { id, label: '✗ Sai', tone: 'false' as EdgeTone, sourceHandle: 'right-source', targetHandle: 'top-target' },
+        ]);
+        exits = exits.concat(e.exits);
+        maxY = Math.max(maxY, e.y);
+        if (!ctx.aliases['node-false-0'] && e.entry) {
+          ctx.aliases['node-false-0'] = e.entry;
+        }
+      } else {
+        // Không có `else` → cạnh "Sai" rẽ sang phải rồi đi xuống khối kế tiếp.
+        exits.push({ id, label: '✗ Sai', tone: 'false' as EdgeTone, sourceHandle: 'right-source', targetHandle: 'top-target' });
       }
+
+      if (!ctx.aliases['node-cond-0']) ctx.aliases['node-cond-0'] = id;
+      if (!ctx.aliases['node-true-0'] && t.entry) {
+        ctx.aliases['node-true-0'] = t.entry;
+      }
+
+      return { y: maxY, exits, entry: id };
+    } else if (b.else.length > 0) {
+      const e = placeList(ctx, b.else, left + thenSpan, elseSpan, bodyY, [
+        { id, label: '✗ Sai', tone: 'false' as EdgeTone, sourceHandle: 'right-source', targetHandle: 'top-target' },
+      ]);
+      const exits: Exit[] = [
+        ...e.exits,
+        { id, label: '✓ Đúng', tone: 'true' as EdgeTone, sourceHandle: 'left-source', targetHandle: 'top-target' },
+      ];
+      return { y: e.y, exits, entry: id };
     } else {
-      // Không có `else` → cạnh "Sai" đi thẳng xuống khối kế tiếp.
-      exits.push({ id, label: '✗ Sai', tone: 'false' });
+      return { y: y + ROW_H, exits: [{ id, sourceHandle: 'bottom-source', targetHandle: 'top-target' }], entry: id };
     }
-
-    if (!ctx.aliases['node-cond-0']) ctx.aliases['node-cond-0'] = id;
-    if (!ctx.aliases['node-true-0'] && t.entry) {
-      ctx.aliases['node-true-0'] = t.entry;
-    }
-
-    return { y: maxY, exits, entry: id };
   }
 
   if (b.kind === 'loop') {
@@ -736,21 +783,36 @@ function placeBlock(
       {
         id,
         label: b.loopKind === 'for' ? '✓ Mỗi lượt lặp' : '✓ Còn đúng',
-        tone: 'true',
+        tone: 'true' as EdgeTone,
+        sourceHandle: 'bottom-source',
+        targetHandle: 'top-target',
       },
     ]);
     ctx.loopStack.pop();
 
-    // Cạnh quay lại — thứ làm sơ đồ ĐỌC RA hình vòng lặp.
-    connect(
-      ctx,
-      body.exits.map((e) => ({ id: e.id, label: '↻ Quay lại', tone: 'back' as EdgeTone })),
-      id,
-    );
+    // Cạnh quay lại — lấy các điểm thoát từ thân vòng lặp quay về đầu vòng lặp
+    // Chỉ kết nối các node thực sự trong thân (khác id vòng lặp)
+    const validBackExits = body.exits.filter((e) => e.id !== id);
+    if (validBackExits.length > 0) {
+      connect(
+        ctx,
+        validBackExits.map((e) => ({
+          id: e.id,
+          label: '↻ Quay lại',
+          tone: 'back' as EdgeTone,
+          sourceHandle: 'left-source',
+          targetHandle: 'left-target',
+        })),
+        id,
+      );
+    }
 
     return {
       y: body.y + 28,
-      exits: [{ id, label: '✗ Hết vòng lặp', tone: 'false' }, ...frame.breaks],
+      exits: [
+        { id, label: '✗ Hết vòng lặp', tone: 'false' as EdgeTone, sourceHandle: 'right-source', targetHandle: 'top-target' },
+        ...frame.breaks,
+      ],
       entry: id,
     };
   }
@@ -763,8 +825,8 @@ function placeBlock(
   });
   b.nodeId = id;
   connect(ctx, incoming, id);
-  const r = placeList(ctx, b.body, left, span, y + ROW_H, [{ id, tone: 'true' }]);
-  return { y: r.y, exits: r.exits.length ? r.exits : [{ id }], entry: id };
+  const r = placeList(ctx, b.body, left, span, y + ROW_H, [{ id, tone: 'true' as EdgeTone, sourceHandle: 'bottom-source' }]);
+  return { y: r.y, exits: r.exits.length ? r.exits : [{ id, sourceHandle: 'bottom-source' }], entry: id };
 }
 
 // ── Điểm vào công khai ────────────────────────

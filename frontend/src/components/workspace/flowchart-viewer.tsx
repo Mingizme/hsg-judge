@@ -74,11 +74,26 @@ function CustomNode({ id, data }: { id: string; data: any }) {
           'scale-105 border-primary shadow-glow ring-2 ring-primary ring-offset-2 ring-offset-background',
       )}
     >
+      {/* Target handles */}
       <Handle
         type="target"
+        id="top-target"
         position={Position.Top}
         className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
       />
+      <Handle
+        type="target"
+        id="left-target"
+        position={Position.Left}
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
+      />
+      <Handle
+        type="target"
+        id="right-target"
+        position={Position.Right}
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
+      />
+
       <div className="mb-0.5 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-70">
         <span>{data.category}</span>
       </div>
@@ -92,9 +107,24 @@ function CustomNode({ id, data }: { id: string; data: any }) {
           {data.subtext}
         </div>
       )}
+
+      {/* Source handles */}
       <Handle
         type="source"
+        id="bottom-source"
         position={Position.Bottom}
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
+      />
+      <Handle
+        type="source"
+        id="left-source"
+        position={Position.Left}
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
+      />
+      <Handle
+        type="source"
+        id="right-source"
+        position={Position.Right}
         className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
       />
     </div>
