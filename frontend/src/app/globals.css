@@ -225,16 +225,23 @@
   @apply text-foreground/90 leading-relaxed;
 }
 
+/* Neo anchor: chừa navbar (3.5rem) + thanh bài học (3rem) + đệm đọc */
+.lesson-prose h2,
+.lesson-prose h3,
+.lesson-prose h4 {
+  scroll-margin-top: 7.5rem;
+}
+
 .lesson-prose h2 {
-  @apply mt-10 mb-5 scroll-mt-24 border-b border-border pb-2 text-2xl font-bold tracking-tight text-foreground;
+  @apply mt-10 mb-5 border-b border-border pb-2 text-2xl font-bold tracking-tight text-foreground;
 }
 
 .lesson-prose h3 {
-  @apply mt-8 mb-3 scroll-mt-24 text-xl font-semibold tracking-tight text-foreground/95;
+  @apply mt-8 mb-3 text-xl font-semibold tracking-tight text-foreground/95;
 }
 
 .lesson-prose h4 {
-  @apply mt-6 mb-2 scroll-mt-24 text-base font-semibold text-foreground/90;
+  @apply mt-6 mb-2 text-base font-semibold text-foreground/90;
 }
 
 .lesson-prose p {
@@ -295,5 +302,126 @@
 
 .lesson-prose hr {
   @apply my-8 border-border/60;
+}
+
+.lesson-prose a {
+  @apply font-medium text-primary underline decoration-primary/40 underline-offset-2 transition hover:decoration-primary;
+}
+
+.lesson-prose img {
+  @apply my-6 mx-auto max-w-full rounded-xl border border-border;
+}
+
+/* ── Mốc "Phần I…XI": trước là <h1> nên trang có 12 h1, nay là h2 nổi bật ── */
+.lesson-prose h2.lesson-part {
+  @apply mt-14 mb-6 border-none bg-gradient-to-r from-primary/10 to-transparent px-4 py-3 text-xl font-extrabold uppercase tracking-wide text-primary sm:text-2xl;
+  border-left: 3px solid hsl(var(--primary));
+  border-radius: 0 0.75rem 0.75rem 0;
+}
+
+/* ── Hộp ghi chú (trước là div với bg-blue-500 hardcode) ── */
+.lesson-prose .lesson-note {
+  @apply my-6 rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-[15px] text-foreground/90;
+}
+
+.lesson-prose .lesson-note p:last-child {
+  @apply mb-0;
+}
+
+/* ── Bảng rộng: cuộn ngang trong khung, không phá layout bài đọc ── */
+.lesson-prose .lesson-table {
+  @apply my-6 w-full overflow-x-auto rounded-xl;
+}
+
+.lesson-prose .lesson-table > table {
+  @apply my-0;
+}
+
+/* ── Khối code: thanh tiêu đề + nút sao chép do <LessonCodeTools> gắn ── */
+.lesson-prose .lesson-code {
+  @apply my-6 overflow-hidden rounded-xl border border-border shadow-lg dark:border-white/10;
+}
+
+.lesson-prose .lesson-code > pre {
+  @apply my-0 rounded-none border-0 shadow-none;
+}
+
+.lesson-code-bar {
+  @apply flex items-center gap-2 border-b border-white/10 bg-slate-900 px-3 py-1.5 dark:bg-[#161b22];
+}
+
+.lesson-code-lang {
+  @apply rounded-md bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300;
+}
+
+.lesson-code-caption {
+  @apply min-w-0 flex-1 truncate text-[11px] font-medium text-slate-400;
+}
+
+.lesson-code-copy {
+  @apply ml-auto shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/15 hover:text-white;
+}
+
+.lesson-code-copy[data-state='ok'] {
+  @apply border-emerald-400/40 bg-emerald-500/15 text-emerald-300;
+}
+
+.lesson-code-copy[data-state='error'] {
+  @apply border-red-400/40 bg-red-500/15 text-red-300;
+}
+
+/* ── Tô màu code: Prism inline style (~120 byte/token) → 7 class ngắn ──
+   Khối code luôn nền tối ở cả hai theme nên bảng Monokai dùng chung. */
+.lesson-prose .tk-t {
+  color: #f8f8f2;
+}
+.lesson-prose .tk-k {
+  color: #f92672;
+}
+.lesson-prose .tk-v {
+  color: #66d9ef;
+}
+.lesson-prose .tk-f {
+  color: #a6e22e;
+}
+.lesson-prose .tk-s {
+  color: #e6db74;
+}
+.lesson-prose .tk-n {
+  color: #ae81ff;
+}
+.lesson-prose .tk-c {
+  color: #8292a2;
+  font-style: italic;
+}
+
+/* Cột số dòng — không nằm trong vùng chọn/copy */
+.lesson-prose .ln {
+  @apply mr-4 inline-block w-7 select-none text-right text-slate-500;
+}
+
+/* ── KaTeX ──
+   Công thức display dài (khai triển tổ hợp, ma trận) cuộn ngang trong khung
+   thay vì làm cả trang trôi ngang trên điện thoại. */
+.lesson-prose .katex {
+  font-size: 1.05em;
+}
+
+.lesson-prose .katex-display {
+  @apply my-5 overflow-x-auto overflow-y-hidden py-1;
+}
+
+/* Ký hiệu toán trong tiêu đề không được to hơn chữ tiêu đề */
+.lesson-prose h2 .katex,
+.lesson-prose h3 .katex,
+.lesson-prose h4 .katex {
+  font-size: 1em;
+}
+
+/* Anchor nhảy mục lục cuộn mềm (khối prefers-reduced-motion ở trên tự vô hiệu hoá) */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
