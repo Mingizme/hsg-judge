@@ -15,6 +15,7 @@ import {
   Cpu,
 } from 'lucide-react';
 import { ProblemCard } from '@/components/problems/problem-card';
+import { KatakanaRain } from '@/components/ui/katakana-rain';
 import {
   API_BASE,
   fetchJudgeHealth,
@@ -168,7 +169,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="container mx-auto max-w-7xl space-y-16 px-4 py-10 md:py-14">
+    <div className="container relative mx-auto max-w-7xl space-y-16 px-4 py-10 md:py-14">
       {/* Hero */}
       <motion.section
         className="flex flex-col items-center space-y-6 text-center"
@@ -333,6 +334,18 @@ export default function Home() {
           </div>
         )}
       </motion.section>
+
+      {/*
+        Nền mưa chữ katakana/hiragana — chỉ bật ở TRANG CHỦ (không đặt trong
+        layout) để trang làm bài và trang cấu hình vẫn giữ nền phẳng, dễ đọc.
+        Lớp này `fixed inset-0 -z-10 pointer-events-none` nên nằm dưới toàn bộ
+        nội dung và không cản thao tác.
+
+        Đặt Ở CUỐI danh sách con và ép `!mt-0` vì thẻ cha dùng `space-y-16`:
+        `space-y-*` cộng `margin-top` cho MỌI con trừ con đầu, nếu để lớp nền
+        làm con đầu thì hero bị đẩy xuống 4rem một cách vô cớ.
+      */}
+      <KatakanaRain className="!mt-0" />
     </div>
   );
 }

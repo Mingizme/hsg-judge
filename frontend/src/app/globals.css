@@ -163,6 +163,28 @@
   .scrollbar-thin-muted {
     scrollbar-width: thin;
   }
+  /* Màn che của nền "mưa chữ" katakana ở trang chủ: đậm ở giữa — nơi có tiêu đề
+     và thẻ số liệu — rồi loãng dần ra viền, để hiệu ứng vẫn thấy rõ nhưng chữ
+     nội dung luôn đạt độ tương phản đọc được (WCAG AA).
+     Viết thành utility thay vì `bg-[radial-gradient(...)]` dài dòng trong JSX. */
+  .rain-veil {
+    background-image: radial-gradient(
+      ellipse 65% 55% at 50% 32%,
+      hsl(var(--background) / 0.94) 0%,
+      hsl(var(--background) / 0.62) 58%,
+      hsl(var(--background) / 0.15) 100%
+    );
+  }
+  /* Lưới mảnh kiểu khung soạn code, dùng cho lớp nền trang chủ */
+  .grid-overlay {
+    background-image: linear-gradient(
+        to right,
+        hsl(var(--border) / 0.6) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, hsl(var(--border) / 0.6) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
 }
 
 /* Custom Scrollbar */
