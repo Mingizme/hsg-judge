@@ -1,123 +1,212 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Search, SlidersHorizontal, RefreshCw, BookOpen } from 'lucide-react';
-import { ProblemCard, type Problem } from '@/components/problems/problem-card';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, RefreshCw, BookOpen, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { ProblemCard } from '@/components/problems/problem-card';
+import { fetchProblemList, type ProblemListResult } from '@/lib/problems-api';
+import { cn } from '@/lib/utils';
+
+const PAGE_SIZE = 12;
 
 export default function ProblemsPage() {
-  const [problems, setProblems] = useState<Problem[]>([]);
+  const [result, setResult] = useState<ProblemListResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDifficulty, setSelectedDifficulty] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchProblems = async () => {
-    setLoading(true);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-      const res = await fetch(`${apiUrl}/problems`);
-      if (res.ok) {
-        const json = await res.json();
-        const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
-        if (Array.isArray(rawList)) {
-          const mapped: Problem[] = rawList.map((p: any) => ({
-            id: p.id || p.code,
-            code: p.code,
-            title: p.title || `Bài tập ${p.code}`,
-            difficulty: p.difficulty || 'MEDIUM',
-            timeLimit: (p.timeLimitMs || 1000) / 1000,
-            memoryLimit: p.memoryLimitMb || 256,
-            category: p.categories?.map((c: any) => c.name || c.nameVi) || ['Tin học HSG'],
-            acRate: p.totalSubmissions > 0 ? Math.round((p.totalSolved || 1) / p.totalSubmissions * 100) : 50,
-            totalTests: p.totalTests || 24,
-          }));
-          setProblems(mapped);
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to fetch problems list:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [difficulty, setDifficulty] = useState('');
+  const [page, setPage] = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
 
+  // Gõ tới đâu chờ 350ms tới đó rồi mới gọi API, tránh spam backend mỗi ký tự
   useEffect(() => {
-    fetchProblems();
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  /**
+   * Lọc / phân trang do BACKEND làm. Trước đây trang này tải toàn bộ bài (không
+   * tham số) rồi filter bằng JavaScript, nên khi kho đề vượt trang mặc định thì
+   * tìm kiếm bỏ sót bài mà người dùng không hề biết.
+   */
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+
+    fetchProblemList(
+      { page, limit: PAGE_SIZE, difficulty, search },
+      controller.signal,
+    )
+      .then((data) => {
+        setResult(data);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Không kết nối được tới máy chủ chấm bài.',
+        );
+        setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [page, difficulty, search, reloadKey]);
+
+  const problems = result?.problems ?? [];
+  const total = result?.total ?? 0;
+  const totalPages = result?.totalPages ?? 1;
+  const firstIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastIndex = Math.min(page * PAGE_SIZE, total);
+
+  const handleDifficulty = useCallback((value: string) => {
+    setDifficulty(value);
+    setPage(1);
   }, []);
 
-  const filteredProblems = problems.filter((p) => {
-    const matchSearch =
-      p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.title.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchDiff = !selectedDifficulty || p.difficulty === selectedDifficulty;
-    return matchSearch && matchDiff;
-  });
-
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="container mx-auto max-w-7xl space-y-8 px-4 py-8">
+      {/* Tiêu đề trang */}
+      <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-1">
-            <BookOpen className="w-4 h-4" /> Kho Đề Thi HSG Tin Học
+          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-primary">
+            <BookOpen className="h-4 w-4" aria-hidden /> Kho đề thi HSG Tin học
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Danh Sách Bài Tập Thực Hành</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Hệ thống bài tập C++ chuẩn hóa kèm đề thi PDF, sơ đồ thuật toán và chấm điểm tự động.
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Danh sách bài tập thực hành
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Bài tập C++ chuẩn hoá kèm đề thi PDF, sơ đồ thuật toán và chấm điểm
+            tự động theo bộ test của giáo viên.
           </p>
         </div>
 
         <button
-          onClick={fetchProblems}
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm"
+          className="flex items-center gap-2 rounded-xl border bg-card px-3.5 py-2 text-xs font-semibold text-foreground shadow-subtle transition hover:bg-muted disabled:opacity-60"
         >
-          <RefreshCw className={loading ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'} />
+          <RefreshCw
+            className={cn('h-3.5 w-3.5', loading && 'animate-spin')}
+            aria-hidden
+          />
           <span>Làm mới danh sách</span>
         </button>
       </div>
 
-      {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row gap-4 p-4 bg-card border rounded-2xl shadow-sm">
+      {/* Thanh lọc */}
+      <div className="flex flex-col gap-4 rounded-2xl border bg-card p-4 shadow-subtle md:flex-row">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
           <input
-            type="text"
-            placeholder="Tìm kiếm theo mã hoặc tên bài (STRNUM, TAOXAU...)..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-background border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs sm:text-sm"
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Tìm theo mã hoặc tên bài (STRNUM, TAOXAU…)"
+            aria-label="Tìm kiếm bài tập"
+            className="w-full rounded-xl border bg-background py-2 pl-10 pr-4 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <div className="flex gap-2">
-          <select
-            value={selectedDifficulty}
-            onChange={(e) => setSelectedDifficulty(e.target.value)}
-            className="px-3 py-2 bg-background border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs sm:text-sm"
-          >
-            <option value="">Tất cả độ khó</option>
-            <option value="EASY">Dễ</option>
-            <option value="MEDIUM">Trung bình</option>
-            <option value="HARD">Khó</option>
-          </select>
-        </div>
+
+        <select
+          value={difficulty}
+          onChange={(e) => handleDifficulty(e.target.value)}
+          aria-label="Lọc theo độ khó"
+          className="rounded-xl border bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">Tất cả độ khó</option>
+          <option value="EASY">Dễ</option>
+          <option value="MEDIUM">Trung bình</option>
+          <option value="HARD">Khó</option>
+        </select>
       </div>
 
-      {/* Problems Grid */}
-      {loading ? (
-        <div className="p-12 text-center text-muted-foreground text-xs flex items-center justify-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-          <span>Đang tải danh sách bài tập từ máy chủ...</span>
+      {/* Danh sách */}
+      {error ? (
+        <div
+          role="alert"
+          className="flex flex-col items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 p-10 text-center text-xs text-destructive"
+        >
+          <AlertTriangle className="h-6 w-6" aria-hidden />
+          <p className="font-semibold">{error}</p>
+          <p className="text-destructive/80">
+            Máy chủ miễn phí có thể đang “ngủ”, hãy thử Làm mới sau vài giây.
+          </p>
         </div>
-      ) : filteredProblems.length === 0 ? (
-        <div className="p-12 text-center text-muted-foreground text-xs border rounded-2xl bg-card">
-          Chưa tìm thấy bài tập nào phù hợp. Giáo viên có thể tải lên gói bài tập tại Bảng Quản Trị.
+      ) : loading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[188px] animate-pulse rounded-2xl border bg-muted/40"
+              aria-hidden
+            />
+          ))}
+          <span className="sr-only">Đang tải danh sách bài tập…</span>
+        </div>
+      ) : problems.length === 0 ? (
+        <div className="rounded-2xl border bg-card p-12 text-center text-xs text-muted-foreground">
+          {search || difficulty
+            ? 'Không có bài tập nào khớp điều kiện lọc. Hãy thử từ khoá khác.'
+            : 'Kho đề còn trống. Giáo viên có thể tải lên gói bài tập ở Bảng quản trị.'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProblems.map((problem) => (
-            <ProblemCard key={problem.id} problem={problem} />
-          ))}
-        </div>
+        <>
+          <p className="text-xs text-muted-foreground">
+            Hiển thị{' '}
+            <span className="font-semibold text-foreground tabular-nums">
+              {firstIndex}–{lastIndex}
+            </span>{' '}
+            trong{' '}
+            <span className="font-semibold text-foreground tabular-nums">
+              {total}
+            </span>{' '}
+            bài tập
+          </p>
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {problems.map((problem) => (
+              <ProblemCard key={problem.id} problem={problem} />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <nav
+              className="flex items-center justify-center gap-3 pt-2"
+              aria-label="Phân trang danh sách bài tập"
+            >
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="flex items-center gap-1 rounded-xl border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> Trước
+              </button>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                Trang {page}/{totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="flex items-center gap-1 rounded-xl border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-40"
+              >
+                Sau <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </nav>
+          )}
+        </>
       )}
     </div>
   );

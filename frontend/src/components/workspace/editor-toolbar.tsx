@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { RotateCcw, Settings, Type, ShieldCheck, GraduationCap } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { RotateCcw, Type, ShieldCheck, GraduationCap } from 'lucide-react';
 
 interface EditorToolbarProps {
   problemCode: string;
@@ -23,16 +22,16 @@ export function EditorToolbar({
     <div className="flex h-10 w-full shrink-0 items-center justify-between border-b bg-muted/50 px-3">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="flex items-center rounded-sm bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+          <span className="flex items-center rounded-sm border border-info/20 bg-info/10 px-1.5 py-0.5 text-xs font-medium text-info">
             C++ 17
           </span>
           {isTeacher ? (
-            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-              <ShieldCheck className="w-3 h-3" /> Lời giải mẫu Giáo viên
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded border border-warning/20 bg-warning/10 text-warning">
+              <ShieldCheck className="w-3 h-3" aria-hidden /> Lời giải mẫu Giáo viên
             </span>
           ) : (
             <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-              <GraduationCap className="w-3 h-3" /> Khung code làm bài
+              <GraduationCap className="w-3 h-3" aria-hidden /> Khung code làm bài
             </span>
           )}
         </div>
@@ -42,31 +41,37 @@ export function EditorToolbar({
 
       <div className="flex items-center gap-1 text-muted-foreground">
         <div className="flex items-center rounded-md border bg-background px-1 shadow-sm mr-2">
-          <button 
-            className="p-1 hover:text-foreground disabled:opacity-50" 
+          <button
+            type="button"
+            className="p-1 transition-colors hover:text-foreground disabled:opacity-50"
             onClick={() => onFontSizeChange(Math.max(10, fontSize - 1))}
             disabled={fontSize <= 10}
+            aria-label="Giảm cỡ chữ"
             title="Giảm cỡ chữ"
           >
-            <Type className="h-3.5 w-3.5" />
+            <Type className="h-3.5 w-3.5" aria-hidden />
           </button>
           <span className="text-xs font-medium w-6 text-center select-none">{fontSize}</span>
-          <button 
-            className="p-1 hover:text-foreground disabled:opacity-50"
+          <button
+            type="button"
+            className="p-1 transition-colors hover:text-foreground disabled:opacity-50"
             onClick={() => onFontSizeChange(Math.min(24, fontSize + 1))}
             disabled={fontSize >= 24}
+            aria-label="Tăng cỡ chữ"
             title="Tăng cỡ chữ"
           >
-            <Type className="h-4 w-4" />
+            <Type className="h-4 w-4" aria-hidden />
           </button>
         </div>
 
-        <button 
+        <button
+          type="button"
           className="rounded p-1.5 hover:bg-muted hover:text-foreground transition-colors"
           onClick={onReset}
+          aria-label="Khôi phục khung code ban đầu"
           title="Khôi phục khung code ban đầu"
         >
-          <RotateCcw className="h-4 w-4" />
+          <RotateCcw className="h-4 w-4" aria-hidden />
         </button>
       </div>
     </div>

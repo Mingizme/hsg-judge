@@ -16,6 +16,7 @@ import ReactFlow, {
   Connection,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { useTheme } from 'next-themes';
 import {
   Play,
   Pause,
@@ -25,10 +26,29 @@ import {
   Sparkles,
   Plus,
   Eye,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateFlowchartFromCpp } from '@/lib/cpp-to-flowchart';
 import { generateSimulationTrace, SimulationStep } from '@/lib/simulation-generator';
+
+/**
+ * Bảng màu từng loại khối. Trước đây chỉ có tông tối (`bg-emerald-950/70`) nên ở
+ * chế độ Sáng chữ và nền gần như trùng nhau. Nay mỗi loại có biến thể cho cả hai
+ * chế độ, dùng độ mờ thay vì màu đặc để hoà với nền của theme.
+ */
+const NODE_STYLES: Record<string, string> = {
+  start:
+    'bg-success/10 border-success/40 text-success dark:bg-success/15',
+  condition:
+    'bg-warning/10 border-warning/40 text-warning dark:bg-warning/15',
+  action:
+    'bg-info/10 border-info/40 text-info dark:bg-info/15',
+  stack:
+    'bg-[hsl(280_70%_60%/0.1)] border-[hsl(280_70%_60%/0.4)] text-[hsl(280_60%_45%)] dark:text-[hsl(280_70%_72%)]',
+  output:
+    'bg-primary/10 border-primary/40 text-primary dark:bg-primary/15',
+};
 
 // Custom Flowchart Node with High-aesthetic Visuals
 function CustomNode({ id, data }: { id: string; data: any }) {
@@ -37,29 +57,32 @@ function CustomNode({ id, data }: { id: string; data: any }) {
   return (
     <div
       className={cn(
-        'px-4 py-2.5 rounded-2xl border shadow-lg transition-all duration-300 min-w-[210px] text-center backdrop-blur-md relative group select-none cursor-grab active:cursor-grabbing',
-        data.type === 'start' && 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300 shadow-emerald-950/50',
-        data.type === 'condition' && 'bg-amber-950/70 border-amber-500/50 text-amber-300 shadow-amber-950/50',
-        data.type === 'action' && 'bg-blue-950/70 border-blue-500/50 text-blue-300 shadow-blue-950/50',
-        data.type === 'stack' && 'bg-purple-950/70 border-purple-500/50 text-purple-300 shadow-purple-950/50',
-        data.type === 'output' && 'bg-teal-950/70 border-teal-500/50 text-teal-300 shadow-teal-950/50',
-        isCurrent && 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-background scale-105 shadow-xl border-emerald-400'
+        'relative min-w-[210px] cursor-grab select-none rounded-2xl border px-4 py-2.5 text-center shadow-card backdrop-blur-md transition-all duration-300 ease-smooth active:cursor-grabbing',
+        NODE_STYLES[data.type as string] ?? NODE_STYLES.action,
+        isCurrent &&
+          'scale-105 border-primary shadow-glow ring-2 ring-primary ring-offset-2 ring-offset-background',
       )}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="!bg-slate-400 !w-2.5 !h-2.5 !border-2 !border-background"
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
       />
-      <div className="text-[10px] font-bold uppercase tracking-wider opacity-70 mb-0.5 flex items-center justify-center gap-1">
+      <div className="mb-0.5 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-70">
         <span>{data.category}</span>
       </div>
-      <div className="text-xs font-mono font-bold tracking-tight text-foreground">{data.label}</div>
-      {data.subtext && <div className="text-[10px] text-muted-foreground mt-1 opacity-90">{data.subtext}</div>}
+      <div className="font-mono text-xs font-bold tracking-tight text-foreground">
+        {data.label}
+      </div>
+      {data.subtext && (
+        <div className="mt-1 text-[10px] text-muted-foreground opacity-90">
+          {data.subtext}
+        </div>
+      )}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!bg-slate-400 !w-2.5 !h-2.5 !border-2 !border-background"
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground"
       />
     </div>
   );
@@ -74,34 +97,26 @@ interface FlowchartViewerProps {
   initialCode?: string;
 }
 
-const DEFAULT_STRNUM_CODE = `#include <bits/stdc++.h>
-using namespace std;
-int n, k;
-string s;
-stack<char> st;
-int main() {
-    if (cin >> n >> k >> s) {
-        for (int i = 0; i < n; i++) {
-            while (k > 0 && !st.empty() && s[i] > st.top()) {
-                st.pop(); k--;
-            }
-            st.push(s[i]);
-        }
-        while (k > 0 && !st.empty()) { st.pop(); k--; }
-        vector<char> ans;
-        while (!st.empty()) { ans.push_back(st.top()); st.pop(); }
-        for (int i = ans.size() - 1; i >= 0; i--) cout << ans[i];
-    }
-    return 0;
-}`;
+export function FlowchartViewer({
+  problemCode = '',
+  initialCode,
+}: FlowchartViewerProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
-export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: FlowchartViewerProps) {
-  const code = initialCode || DEFAULT_STRNUM_CODE;
+  /**
+   * KHÔNG còn code mẫu STRNUM cứng. Trước đây mọi bài chưa có lời giải mẫu đều
+   * hiển thị sơ đồ của STRNUM — học sinh học sai hoàn toàn thuật toán bài mình
+   * đang làm. Nay không có lời giải thì hiện trạng thái rỗng trung thực.
+   */
+  const code = initialCode?.trim() || '';
+  const hasCode = code.length > 0;
 
   // 1. Tự động sinh danh sách các bước mô phỏng (Dry-run Steps) cho từng bài
-  const simulationSteps = useMemo(() => {
+  const simulationSteps = useMemo<SimulationStep[]>(() => {
+    if (!hasCode) return [];
     return generateSimulationTrace(code, problemCode);
-  }, [code, problemCode]);
+  }, [code, problemCode, hasCode]);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -110,8 +125,9 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
 
   // 2. Tự động sinh cấu trúc Nodes & Edges từ Code C++
   const initialGenerated = useMemo(() => {
+    if (!hasCode) return { nodes: [] as Node[], edges: [] as Edge[] };
     return generateFlowchartFromCpp(code, problemCode);
-  }, [code, problemCode]);
+  }, [code, problemCode, hasCode]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialGenerated.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialGenerated.edges);
@@ -126,6 +142,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
     setNodes(initialGenerated.nodes);
     setEdges(initialGenerated.edges);
     setCurrentStepIndex(0);
+    setIsPlaying(false);
   }, [initialGenerated, setNodes, setEdges]);
 
   // Sync active step to nodes highlight
@@ -143,6 +160,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
   }, [currentStepIndex, currentStep?.nodeId, setNodes, currentStep]);
 
   const handleResetLayout = () => {
+    if (!hasCode) return;
     const regenerated = generateFlowchartFromCpp(code, problemCode);
     setNodes(regenerated.nodes);
     setEdges(regenerated.edges);
@@ -167,7 +185,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
 
   // Auto-play simulation
   React.useEffect(() => {
-    let timer: any;
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (isPlaying) {
       timer = setInterval(() => {
         setCurrentStepIndex((prev) => {
@@ -179,8 +197,29 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
         });
       }, 1800);
     }
-    return () => clearInterval(timer);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [isPlaying, simulationSteps.length]);
+
+  if (!hasCode) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
+        <Workflow
+          className="h-10 w-10 stroke-1 text-muted-foreground/40"
+          aria-hidden
+        />
+        <p className="text-sm font-semibold text-foreground">
+          Bài này chưa có lời giải mẫu
+        </p>
+        <p className="max-w-[320px] text-xs leading-relaxed text-muted-foreground">
+          Sơ đồ thuật toán được sinh tự động từ lời giải mẫu (.cpp) mà giáo viên
+          tải lên. Khi chưa có tệp đó, hệ thống không hiển thị sơ đồ của bài khác
+          để tránh gây hiểu sai thuật toán.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full w-full bg-background overflow-hidden relative">
@@ -189,69 +228,89 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
         {/* Left: Dry Run Stepper */}
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={() => setIsPlaying(!isPlaying)}
             className={cn(
-              'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm transition',
+              'flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold shadow-subtle transition-colors duration-200 ease-smooth',
               isPlaying
-                ? 'bg-amber-500 text-amber-950 hover:bg-amber-600'
-                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                ? 'bg-warning text-background hover:bg-warning/90'
+                : 'bg-gradient-brand text-white hover:shadow-glow',
             )}
           >
-            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            {isPlaying ? (
+              <Pause className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Play className="h-3.5 w-3.5" aria-hidden />
+            )}
             <span>{isPlaying ? 'Tạm dừng' : 'Chạy mô phỏng'}</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setCurrentStepIndex((prev) => Math.max(0, prev - 1))}
             disabled={currentStepIndex === 0 || isPlaying}
-            className="p-1 rounded-lg border bg-background hover:bg-muted text-foreground disabled:opacity-40 text-xs"
+            className="rounded-lg border bg-background p-1 text-xs text-foreground transition hover:bg-muted disabled:opacity-40"
             title="Bước trước"
+            aria-label="Bước trước"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
           </button>
 
-          <span className="text-[11px] font-mono font-semibold px-1 text-muted-foreground">
-            Bước {currentStepIndex + 1}/{simulationSteps.length}
+          <span className="px-1 font-mono text-[11px] font-semibold tabular-nums text-muted-foreground">
+            Bước {simulationSteps.length === 0 ? 0 : currentStepIndex + 1}/
+            {simulationSteps.length}
           </span>
 
           <button
-            onClick={() => setCurrentStepIndex((prev) => Math.min(simulationSteps.length - 1, prev + 1))}
-            disabled={currentStepIndex === simulationSteps.length - 1 || isPlaying}
-            className="p-1 rounded-lg border bg-background hover:bg-muted text-foreground disabled:opacity-40 text-xs"
+            type="button"
+            onClick={() =>
+              setCurrentStepIndex((prev) =>
+                Math.min(simulationSteps.length - 1, prev + 1),
+              )
+            }
+            disabled={
+              currentStepIndex >= simulationSteps.length - 1 || isPlaying
+            }
+            className="rounded-lg border bg-background p-1 text-xs text-foreground transition hover:bg-muted disabled:opacity-40"
             title="Bước kế tiếp"
+            aria-label="Bước kế tiếp"
           >
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setCurrentStepIndex(0);
               setIsPlaying(false);
             }}
-            className="p-1 rounded-lg border bg-background hover:bg-muted text-muted-foreground hover:text-foreground text-xs ml-1"
+            className="ml-1 rounded-lg border bg-background p-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
             title="Đặt lại mô phỏng"
+            aria-label="Đặt lại mô phỏng"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
 
         {/* Right: Drag & Drop and Auto-generate actions */}
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={handleAddNewNode}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border bg-card hover:bg-muted text-xs font-medium text-foreground transition"
+            className="flex items-center gap-1 rounded-lg border bg-card px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
             title="Thêm khối mới vào sơ đồ"
           >
-            <Plus className="w-3 h-3 text-primary" />
+            <Plus className="h-3 w-3 text-primary" aria-hidden />
             <span className="hidden sm:inline">Thêm khối</span>
           </button>
 
           <button
+            type="button"
             onClick={handleResetLayout}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border bg-card hover:bg-muted text-xs font-medium text-muted-foreground hover:text-foreground transition"
+            className="flex items-center gap-1 rounded-lg border bg-card px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
             title="Tự động sắp xếp lại từ C++"
           >
-            <Sparkles className="w-3 h-3 text-amber-500" />
+            <Sparkles className="h-3 w-3 text-warning" aria-hidden />
             <span className="hidden sm:inline">Sinh lại từ C++</span>
           </button>
         </div>
@@ -274,15 +333,24 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
           minZoom={0.3}
           maxZoom={1.8}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#334155" />
-          <Controls className="!bg-card !border-border !shadow-md !rounded-xl overflow-hidden" />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={16}
+            size={1}
+            /* Màu chấm nền phải đổi theo theme, nếu không ở chế độ Sáng nền bị
+               lốm đốm xám đậm rất rối mắt. */
+            color={isDark ? 'hsl(240 5% 24%)' : 'hsl(215 20% 82%)'}
+          />
+          <Controls className="!overflow-hidden !rounded-xl !border-border !bg-card !shadow-card" />
           <MiniMap
-            className="!bg-card/90 !border-border !rounded-xl overflow-hidden hidden sm:block"
+            className="hidden !overflow-hidden !rounded-xl !border-border !bg-card/90 sm:block"
+            maskColor={isDark ? 'hsl(240 10% 4% / 0.6)' : 'hsl(210 40% 96% / 0.6)'}
             nodeColor={(node) => {
-              if (node.data?.type === 'start') return '#10b981';
-              if (node.data?.type === 'condition') return '#f59e0b';
-              if (node.data?.type === 'stack') return '#a855f7';
-              return '#3b82f6';
+              if (node.data?.type === 'start') return 'hsl(142 71% 45%)';
+              if (node.data?.type === 'condition') return 'hsl(38 92% 50%)';
+              if (node.data?.type === 'stack') return 'hsl(280 70% 60%)';
+              if (node.data?.type === 'output') return 'hsl(221 83% 53%)';
+              return 'hsl(199 89% 48%)';
             }}
           />
         </ReactFlow>
@@ -290,30 +358,38 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
 
       {/* Bottom Live Dry Run Dynamic Variable Watcher Bar */}
       {currentStep && (
-        <div className="border-t bg-card/95 backdrop-blur px-4 py-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shrink-0 z-10 shadow-lg">
+        <div className="z-10 flex shrink-0 flex-col items-start justify-between gap-3 border-t bg-card/95 px-4 py-2.5 text-xs shadow-elevated backdrop-blur sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
-            <span className="font-bold text-primary flex items-center gap-1">
-              <Eye className="w-3.5 h-3.5" /> Biến theo dõi:
+            <span className="flex items-center gap-1 font-bold text-primary">
+              <Eye className="h-3.5 w-3.5" aria-hidden /> Biến theo dõi:
             </span>
             <div className="flex items-center gap-2 font-mono">
-              <span className="px-2 py-0.5 rounded bg-muted border">i = {currentStep.i >= 0 ? currentStep.i : '-'}</span>
-              <span className="px-2 py-0.5 rounded bg-muted border">s[i] = &apos;{currentStep.currentChar}&apos;</span>
-              <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold">
+              <span className="rounded border bg-muted px-2 py-0.5">
+                i = {currentStep.i >= 0 ? currentStep.i : '-'}
+              </span>
+              <span className="rounded border bg-muted px-2 py-0.5">
+                s[i] = &apos;{currentStep.currentChar}&apos;
+              </span>
+              <span className="rounded border border-warning/30 bg-warning/10 px-2 py-0.5 font-bold text-warning">
                 {currentStep.primaryVarName} = {currentStep.primaryVarValue}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 font-mono">
-            <span className="text-muted-foreground font-sans">{currentStep.memoryLabel || 'Bộ nhớ'}:</span>
+            <span className="font-sans text-muted-foreground">
+              {currentStep.memoryLabel || 'Bộ nhớ'}:
+            </span>
             <div className="flex items-center gap-1">
               {!currentStep.memoryItems || currentStep.memoryItems.length === 0 ? (
-                <span className="text-muted-foreground italic font-sans text-[11px]">[rỗng]</span>
+                <span className="font-sans text-[11px] italic text-muted-foreground">
+                  [rỗng]
+                </span>
               ) : (
                 currentStep.memoryItems.map((item, idx) => (
                   <span
                     key={idx}
-                    className="w-5 h-5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 font-bold flex items-center justify-center text-xs"
+                    className="flex h-5 w-5 items-center justify-center rounded border border-[hsl(280_70%_60%/0.4)] bg-[hsl(280_70%_60%/0.15)] text-xs font-bold text-[hsl(280_60%_45%)] dark:text-[hsl(280_70%_72%)]"
                   >
                     {item}
                   </span>
@@ -322,7 +398,7 @@ export function FlowchartViewer({ problemCode = 'STRNUM', initialCode }: Flowcha
             </div>
           </div>
 
-          <div className="text-[11px] text-muted-foreground line-clamp-1 italic max-w-sm hidden lg:block">
+          <div className="hidden max-w-sm italic line-clamp-1 text-[11px] text-muted-foreground lg:block">
             {currentStep.explanation}
           </div>
         </div>

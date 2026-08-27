@@ -13,7 +13,7 @@ import {
   TestCaseInput,
   JudgeConfig,
 } from '../judge/judge-worker.service';
-import { Subject } from 'rxjs';
+import { ReplaySubject } from 'rxjs';
 
 // ── Types ─────────────────────────────────────
 
@@ -45,8 +45,24 @@ export interface SubmissionSummary {
 export class SubmissionService {
   private readonly logger = new Logger(SubmissionService.name);
 
-  // Map submissionId → SSE Subject (cho real-time streaming)
-  private readonly sseStreams = new Map<string, Subject<SSEEvent>>();
+  /**
+   * Map submissionId → ReplaySubject (real-time streaming).
+   *
+   * QUAN TRỌNG: phải là ReplaySubject, không phải Subject. Quá trình chấm bắt
+   * đầu ngay khi POST /submit trả về, tức là TRƯỚC khi client kịp mở
+   * EventSource. Với Subject thường, các event `compile` và những
+   * `test-result` đầu tiên bị mất; bài biên dịch lỗi hoặc bài rất nhanh còn
+   * `complete()` xong trước khi client subscribe → UI treo ở "Đang chấm".
+   * ReplaySubject phát lại toàn bộ lịch sử cho subscriber đến muộn (Render
+   * free tier cold-start có thể mất vài giây).
+   */
+  private readonly sseStreams = new Map<string, ReplaySubject<SSEEvent>>();
+
+  /** Hẹn giờ dọn stream — giữ tham chiếu để clear khi cần */
+  private readonly sseCleanupTimers = new Map<string, NodeJS.Timeout>();
+
+  /** Giữ stream đủ lâu để client vượt qua cold-start / mất mạng tạm thời */
+  private static readonly SSE_RETENTION_MS = 5 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -130,8 +146,11 @@ export class SubmissionService {
 
     // ── 3. Create SSE stream ──────────────────
 
-    const sseSubject = new Subject<SSEEvent>();
+    // Buffer không giới hạn: mọi event từ lúc bắt đầu chấm đều được phát lại
+    // cho client dù client subscribe muộn.
+    const sseSubject = new ReplaySubject<SSEEvent>();
     this.sseStreams.set(submission.id, sseSubject);
+    this.scheduleStreamCleanup(submission.id);
 
     // ── 4. Start judging (async, non-blocking) ─
 
@@ -140,16 +159,50 @@ export class SubmissionService {
       sourceCode,
       problem,
       sseSubject,
-    ).catch((err) => {
+    ).catch(async (err) => {
       this.logger.error(`Judge error for ${submission.id}:`, err);
+
+      // Đánh dấu submission thất bại để UI không treo vô hạn ở PENDING
+      try {
+        await this.prisma.submission.update({
+          where: { id: submission.id },
+          data: {
+            status: SubmissionStatus.ERROR,
+            verdict: Verdict.SE,
+            judgedAt: new Date(),
+            compilationLog: String(err?.message || err).slice(0, 2000),
+          },
+        });
+      } catch (updateErr) {
+        this.logger.warn(`Cannot mark submission FAILED: ${updateErr}`);
+      }
+
       sseSubject.next({
         type: 'error',
-        data: { message: 'System error during judging' },
+        data: {
+          submissionId: submission.id,
+          message: 'Lỗi hệ thống trong quá trình chấm bài',
+        },
       });
       sseSubject.complete();
     });
 
     return submission.id;
+  }
+
+  /** Dọn stream sau khoảng giữ, luôn reset timer cũ nếu có */
+  private scheduleStreamCleanup(submissionId: string): void {
+    const existing = this.sseCleanupTimers.get(submissionId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.sseStreams.delete(submissionId);
+      this.sseCleanupTimers.delete(submissionId);
+    }, SubmissionService.SSE_RETENTION_MS);
+
+    // Không giữ event loop sống chỉ vì timer dọn rác
+    timer.unref?.();
+    this.sseCleanupTimers.set(submissionId, timer);
   }
 
   // ── Execute Judging (async worker) ──────────
@@ -176,7 +229,7 @@ export class SubmissionService {
         testCases: Array<{ id: string }>;
       }>;
     },
-    sseSubject: Subject<SSEEvent>,
+    sseSubject: ReplaySubject<SSEEvent>,
   ): Promise<void> {
     // Update status → JUDGING
     await this.prisma.submission.update({
@@ -202,6 +255,31 @@ export class SubmissionService {
       type: 'compile',
       data: { status: 'compiling', totalTests: testCases.length },
     });
+
+    // Bài chưa nạp test case → dừng sớm với thông báo rõ ràng thay vì
+    // chia cho 0 rồi lưu score = NaN.
+    if (testCases.length === 0) {
+      await this.prisma.submission.update({
+        where: { id: submissionId },
+        data: {
+          status: SubmissionStatus.ERROR,
+          verdict: Verdict.SE,
+          score: 0,
+          maxScore: problem.maxScore,
+          judgedAt: new Date(),
+          compilationLog: 'Bài tập chưa có test case nào được nạp.',
+        },
+      });
+      sseSubject.next({
+        type: 'error',
+        data: {
+          submissionId,
+          message: `Bài "${problem.code}" chưa có test case. Giáo viên cần nạp lại dữ liệu.`,
+        },
+      });
+      sseSubject.complete();
+      return;
+    }
 
     // ── Judge all tests with SSE callback ─────
 
@@ -230,10 +308,15 @@ export class SubmissionService {
       },
     );
 
-    // ── Calculate Score ───────────────────────
+    // ── Calculate Score (theo thang điểm Subtask) ──
 
-    const { score, verdict, passedTests, maxTimeMs } =
-      this.calculateScore(judgeResults, problem);
+    const testWeights = this.buildTestWeights(problem);
+
+    const { score, verdict, passedTests, maxTimeMs } = this.calculateScore(
+      judgeResults,
+      problem,
+      testWeights,
+    );
 
     // ── Save Results to Database ──────────────
 
@@ -250,7 +333,7 @@ export class SubmissionService {
         errorMessage: r.errorMessage?.substring(0, 2000),
         score:
           r.verdict === Verdict.AC
-            ? problem.maxScore / problem.testCases.length
+            ? Math.round((testWeights.get(r.testCaseId) ?? 0) * 100) / 100
             : 0,
         checkedAt: new Date(),
       })),
@@ -307,14 +390,63 @@ export class SubmissionService {
       this.logger.warn(`⚠️ User progress update warning: ${progressErr}`);
     }
 
-    // Cleanup SSE stream after short delay
-    setTimeout(() => {
-      this.sseStreams.delete(submissionId);
-    }, 30000);
+    // Gia hạn thời gian giữ stream tính từ lúc chấm xong, để client vừa mở
+    // EventSource sau khi bài chấm xong vẫn nhận đủ event replay.
+    this.scheduleStreamCleanup(submissionId);
 
     this.logger.log(
       `\n🏁 Submission ${submissionId}: ${verdict} (${score}/${problem.maxScore}) — ${passedTests}/${testCases.length} tests passed`,
     );
+  }
+
+  // ── Test Weights (thang điểm Subtask) ───────
+
+  /**
+   * Tính điểm của TỪNG test case theo cấu hình Subtask của giáo viên.
+   *
+   * Quy tắc (khớp cách chấm Themis quen dùng cho HSG Việt Nam):
+   * - Mỗi Subtask có tổng điểm `score`, chia đều cho số test thuộc Subtask đó.
+   *   VD: "Test 1-10: 10đ" → mỗi test 1đ; "Test 11-30: 20đ" → mỗi test 1đ.
+   * - Test không thuộc Subtask nào chia đều phần điểm còn lại của `maxScore`.
+   * - Bài không cấu hình Subtask → chia đều `maxScore` cho toàn bộ test.
+   *
+   * Trả về Map testCaseId → điểm, dùng cho cả tổng điểm và điểm từng dòng
+   * SubmissionResult (trước đây điểm từng dòng luôn là maxScore/n, bỏ qua
+   * hoàn toàn thang điểm Subtask đã cấu hình).
+   */
+  private buildTestWeights(problem: {
+    maxScore: number;
+    testCases: Array<{ id: string }>;
+    subtasks: Array<{ score: number; testCases: Array<{ id: string }> }>;
+  }): Map<string, number> {
+    const weights = new Map<string, number>();
+    const assigned = new Set<string>();
+    let allocated = 0;
+
+    for (const subtask of problem.subtasks || []) {
+      const tests = (subtask.testCases || []).filter(
+        (tc) => !assigned.has(tc.id),
+      );
+      if (tests.length === 0) continue;
+
+      const perTest = subtask.score / tests.length;
+      for (const tc of tests) {
+        weights.set(tc.id, perTest);
+        assigned.add(tc.id);
+      }
+      allocated += subtask.score;
+    }
+
+    const leftovers = problem.testCases.filter((tc) => !assigned.has(tc.id));
+    if (leftovers.length > 0) {
+      const remaining = Math.max(0, problem.maxScore - allocated);
+      const perTest = remaining / leftovers.length;
+      for (const tc of leftovers) {
+        weights.set(tc.id, perTest);
+      }
+    }
+
+    return weights;
   }
 
   // ── Score Calculator ────────────────────────
@@ -322,6 +454,7 @@ export class SubmissionService {
   private calculateScore(
     results: JudgeTestResult[],
     problem: { maxScore: number; testCases: { id: string }[] },
+    testWeights: Map<string, number>,
   ): {
     score: number;
     verdict: Verdict;
@@ -333,28 +466,40 @@ export class SubmissionService {
       (r) => r.verdict === Verdict.AC,
     ).length;
 
-    // Điểm theo tỷ lệ test passed
-    const scorePerTest = problem.maxScore / totalTests;
-    const score = Math.round(passedTests * scorePerTest * 100) / 100;
-
-    // Max execution time (ms)
-    const maxTimeMs = Math.max(
-      ...results.map((r) => r.executionTimeMs),
+    // Cộng điểm theo trọng số từng test (đã tính từ Subtask)
+    const rawScore = results.reduce(
+      (sum, r) =>
+        r.verdict === Verdict.AC
+          ? sum + (testWeights.get(r.testCaseId) ?? 0)
+          : sum,
       0,
     );
 
-    // Verdict tổng hợp
+    // Chặn trên bằng maxScore để tránh sai lệch làm tròn / cấu hình Subtask lệch
+    const score =
+      Math.round(Math.min(rawScore, problem.maxScore) * 100) / 100;
+
+    // Max execution time (ms)
+    const maxTimeMs = results.length
+      ? Math.max(...results.map((r) => r.executionTimeMs || 0), 0)
+      : 0;
+
+    // Verdict tổng hợp — ưu tiên lỗi nghiêm trọng nhất
     let verdict: Verdict;
-    if (passedTests === totalTests) {
-      verdict = Verdict.AC;
+    if (totalTests === 0) {
+      verdict = Verdict.SE;
     } else if (results.some((r) => r.verdict === Verdict.CE)) {
       verdict = Verdict.CE;
+    } else if (passedTests === totalTests) {
+      verdict = Verdict.AC;
     } else if (results.some((r) => r.verdict === Verdict.TLE)) {
       verdict = Verdict.TLE;
     } else if (results.some((r) => r.verdict === Verdict.MLE)) {
       verdict = Verdict.MLE;
     } else if (results.some((r) => r.verdict === Verdict.RTE)) {
       verdict = Verdict.RTE;
+    } else if (results.some((r) => r.verdict === Verdict.SE)) {
+      verdict = Verdict.SE;
     } else {
       verdict = Verdict.WA;
     }
@@ -410,9 +555,10 @@ export class SubmissionService {
   // ── Get SSE Stream ──────────────────────────
 
   /**
-   * Lấy SSE Subject cho client subscribe.
+   * Lấy SSE stream cho client subscribe.
+   * ReplaySubject nên subscriber đến muộn vẫn nhận đủ event từ đầu.
    */
-  getSSEStream(submissionId: string): Subject<SSEEvent> | null {
+  getSSEStream(submissionId: string): ReplaySubject<SSEEvent> | null {
     return this.sseStreams.get(submissionId) || null;
   }
 
@@ -497,18 +643,17 @@ export class SubmissionService {
           OR: [{ id: userId }, { supabaseId: userId }, { email: userId.toLowerCase() }],
         },
       });
-      if (user) {
-        where.userId = user.id;
-      }
+      // Không tìm thấy tài khoản → PHẢI trả rỗng. Trước đây bỏ qua điều kiện
+      // lọc nên tab "Của tôi" hiện bài nộp của tất cả mọi người.
+      where.userId = user ? user.id : '__no_such_user__';
     }
 
     if (problemCode) {
       const problem = await this.prisma.problem.findUnique({
         where: { code: problemCode.toUpperCase() },
       });
-      if (problem) {
-        where.problemId = problem.id;
-      }
+      // Tương tự: mã bài không tồn tại thì không được trả bài của bài khác.
+      where.problemId = problem ? problem.id : '__no_such_problem__';
     }
 
     const [submissions, total] = await Promise.all([
@@ -532,9 +677,11 @@ export class SubmissionService {
         problemCode: s.problem.code,
         problemTitle: s.problem.title,
         status: s.status,
-        verdict: s.verdict || (s.status === 'COMPLETED' ? 'AC' : s.status),
-        score: s.score ?? (s.verdict === 'AC' ? (s.maxScore || 100) : 0),
-        maxScore: s.maxScore || 100,
+        // Không "đoán" verdict: bài chưa chấm xong thì verdict là null và UI
+        // hiển thị trạng thái thật (PENDING/JUDGING) thay vì AC giả.
+        verdict: s.verdict,
+        score: s.score,
+        maxScore: s.maxScore ?? 100,
         language: s.language,
         executionTimeMs: s.executionTimeMs,
         submittedAt: s.submittedAt,

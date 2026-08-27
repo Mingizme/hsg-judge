@@ -10,6 +10,10 @@
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
 
+    /* One step above --card for nested toolbars / panel headers */
+    --surface: 210 40% 98%;
+    --surface-foreground: 222.2 84% 4.9%;
+
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
@@ -28,9 +32,24 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
+    --success: 142.1 76.2% 36.3%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32.1 94.6% 43.7%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 199.9 89.1% 48.4%;
+    --info-foreground: 0 0% 100%;
+
+    --brand-from: 221.2 83.2% 53.3%;
+    --brand-via: 250 84% 60%;
+    --brand-to: 190 90% 45%;
+
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
+
+    --shadow-color: 222 47% 11%;
 
     --radius: 0.5rem;
   }
@@ -39,10 +58,15 @@
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
 
-    --card: 240 10% 3.9%;
+    /* Cards sit ABOVE the background so elevation reads without heavy borders.
+       Previously --card === --background, which flattened every surface. */
+    --card: 240 8% 6.7%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 240 10% 3.9%;
+    --surface: 240 6% 9.8%;
+    --surface-foreground: 0 0% 98%;
+
+    --popover: 240 8% 7.8%;
     --popover-foreground: 0 0% 98%;
 
     --primary: 217.2 91.2% 59.8%;
@@ -57,12 +81,27 @@
     --accent: 240 3.7% 15.9%;
     --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 72.2% 50.6%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 224.3 76.3% 48%;
+    --success: 142.1 70.6% 45.3%;
+    --success-foreground: 144 61% 8%;
+
+    --warning: 37.7 92.1% 50.2%;
+    --warning-foreground: 26 83% 8%;
+
+    --info: 198.6 88.7% 48.4%;
+    --info-foreground: 202 80% 8%;
+
+    --brand-from: 217.2 91.2% 59.8%;
+    --brand-via: 255 91% 68%;
+    --brand-to: 187 92% 55%;
+
+    --border: 240 5% 17.5%;
+    --input: 240 5% 17.5%;
+    --ring: 217.2 91.2% 59.8%;
+
+    --shadow-color: 240 60% 2%;
   }
 }
 
@@ -72,20 +111,89 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+  /* Consistent, visible keyboard focus everywhere (a11y) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/70 ring-offset-2 ring-offset-background;
+  }
+  ::selection {
+    @apply bg-primary/25 text-foreground;
+  }
+  /* Headings keep tight optical tracking at large sizes */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  /* Tech-gradient accent for wordmarks and headline fragments */
+  .text-gradient-brand {
+    @apply bg-gradient-brand bg-clip-text text-transparent;
+  }
+  /* Thin refined hairline separator matching the Slate/Zinc benchmark */
+  .hairline {
+    @apply border-border/70;
+  }
+  /* Skeleton shimmer sweep */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.06),
+      transparent
+    );
+    @apply animate-shimmer;
+  }
+  /* Glass toolbar used by the navbar and workspace headers */
+  .glass {
+    @apply bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60;
+  }
+  .scrollbar-thin-muted {
+    scrollbar-width: thin;
   }
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-full;
+  @apply bg-muted-foreground/25 rounded-full;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
+  @apply bg-muted-foreground/45;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Respect the OS "reduce motion" preference — no jank, no forced animation */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

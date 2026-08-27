@@ -1,14 +1,22 @@
+/**
+ * Nhãn & màu verdict dùng chung.
+ *
+ * Toàn bộ màu ở đây dùng token của theme (`success`/`warning`/`info`/…) thay cho
+ * `text-green-500`, `text-red-500`… như trước — bảng màu literal của Tailwind
+ * không đổi theo chế độ Sáng/Tối nên chữ verdict bị chìm nền ở một trong hai.
+ */
+
 import { Verdict, Difficulty } from '@/types';
 
 export const VERDICT_COLORS: Record<Verdict, string> = {
-  PENDING: 'text-gray-500',
-  AC: 'text-green-500',
-  WA: 'text-red-500',
-  TLE: 'text-orange-500',
-  MLE: 'text-purple-500',
-  RTE: 'text-yellow-500',
-  CE: 'text-blue-500',
-  SE: 'text-zinc-500',
+  PENDING: 'text-muted-foreground',
+  AC: 'text-success',
+  WA: 'text-destructive',
+  TLE: 'text-warning',
+  MLE: 'text-warning',
+  RTE: 'text-destructive',
+  CE: 'text-info',
+  SE: 'text-muted-foreground',
 };
 
 export const VERDICT_LABELS: Record<Verdict, string> = {
@@ -23,9 +31,9 @@ export const VERDICT_LABELS: Record<Verdict, string> = {
 };
 
 export const DIFFICULTY_COLORS: Record<Difficulty, string> = {
-  EASY: 'text-green-500',
-  MEDIUM: 'text-yellow-500',
-  HARD: 'text-red-500',
+  EASY: 'text-success',
+  MEDIUM: 'text-warning',
+  HARD: 'text-destructive',
 };
 
 export const DEFAULT_CODE_TEMPLATE = `#include <iostream>
@@ -33,7 +41,7 @@ using namespace std;
 
 int main() {
     // Write your code here
-    
+
     return 0;
 }
 `;

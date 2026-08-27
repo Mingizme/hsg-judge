@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { API_BASE } from '@/lib/api-config';
 import { cn } from '@/lib/utils';
 import {
   RefreshCw,
@@ -14,7 +15,9 @@ import {
   User,
   Users,
   ShieldCheck,
-  GraduationCap,
+  Database,
+  ServerCrash,
+  type LucideIcon,
 } from 'lucide-react';
 
 function formatDate(dateStr: string) {
@@ -24,6 +27,11 @@ function formatDate(dateStr: string) {
   } catch {
     return dateStr;
   }
+}
+
+/** 20 → "20", 12.5 → "12.5" (không hiện ".00" vô nghĩa cho điểm nguyên) */
+function formatScore(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 interface SubmissionUser {
@@ -62,10 +70,7 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-
-      let url = `${apiUrl}/submissions?problemCode=${problemCode.toUpperCase()}&limit=50`;
+      let url = `${API_BASE}/submissions?problemCode=${problemCode.toUpperCase()}&limit=50`;
       
       // Nếu chọn lọc bài nộp của tôi và đã đăng nhập
       if (scope === 'my' && user) {
@@ -103,45 +108,83 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
     };
   }, [fetchHistory]);
 
-  const getVerdictBadge = (verdict?: string) => {
-    switch (verdict) {
-      case 'AC':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-sm">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Accepted
-          </span>
-        );
-      case 'WA':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-sm">
-            <XCircle className="w-3.5 h-3.5" /> Wrong Answer
-          </span>
-        );
-      case 'TLE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-sm">
-            <Clock className="w-3.5 h-3.5" /> Time Limit
-          </span>
-        );
-      case 'CE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30 shadow-sm">
-            <FileCode className="w-3.5 h-3.5" /> Compile Error
-          </span>
-        );
-      case 'RTE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 shadow-sm">
-            <AlertTriangle className="w-3.5 h-3.5" /> Runtime Error
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-            {verdict || 'PENDING'}
-          </span>
-        );
+  const VERDICT_BADGES: Record<
+    string,
+    { icon: LucideIcon | null; label: string; className: string }
+  > = {
+    AC: {
+      icon: CheckCircle2,
+      label: 'Accepted',
+      className: 'bg-success/15 text-success border-success/30',
+    },
+    WA: {
+      icon: XCircle,
+      label: 'Wrong Answer',
+      className: 'bg-destructive/15 text-destructive border-destructive/30',
+    },
+    TLE: {
+      icon: Clock,
+      label: 'Time Limit',
+      className: 'bg-warning/15 text-warning border-warning/30',
+    },
+    MLE: {
+      icon: Database,
+      label: 'Memory Limit',
+      className: 'bg-warning/15 text-warning border-warning/30',
+    },
+    CE: {
+      icon: FileCode,
+      label: 'Compile Error',
+      className: 'bg-muted text-muted-foreground border-border',
+    },
+    RTE: {
+      icon: AlertTriangle,
+      label: 'Runtime Error',
+      className:
+        'bg-[hsl(280_70%_60%/0.15)] text-[hsl(280_70%_55%)] border-[hsl(280_70%_60%/0.3)]',
+    },
+    SE: {
+      icon: ServerCrash,
+      label: 'Lỗi hệ thống',
+      className: 'bg-warning/15 text-warning border-warning/30',
+    },
+  };
+
+  /**
+   * Bài chưa chấm xong: API trả `verdict = null`, phải hiển thị trạng thái
+   * thật (PENDING / JUDGING) chứ không đoán bừa.
+   */
+  const getVerdictBadge = (verdict?: string, status?: string) => {
+    const config = verdict ? VERDICT_BADGES[verdict] : undefined;
+
+    if (!config) {
+      const pendingLabel =
+        status === 'JUDGING'
+          ? 'Đang chấm…'
+          : status === 'ERROR'
+            ? 'Lỗi hệ thống'
+            : 'Chờ chấm';
+      return (
+        <span className="inline-flex items-center gap-1 rounded-md border border-info/30 bg-info/15 px-2.5 py-0.5 text-xs font-bold text-info">
+          {status === 'JUDGING' && (
+            <RefreshCw className="h-3 w-3 animate-spin" aria-hidden />
+          )}
+          {pendingLabel}
+        </span>
+      );
     }
+
+    const Icon = config.icon;
+    return (
+      <span
+        className={cn(
+          'inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-bold shadow-subtle',
+          config.className,
+        )}
+      >
+        {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />} {config.label}
+      </span>
+    );
   };
 
   return (
@@ -150,46 +193,58 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
       <div className="flex flex-wrap items-center justify-between px-4 py-2.5 border-b bg-muted/30 gap-2 shrink-0">
         <div className="flex items-center gap-2">
           {/* Scope Switcher: Của tôi vs Toàn trường */}
-          <div className="flex items-center bg-muted/80 p-0.5 rounded-xl border shadow-inner">
+          <div
+            role="group"
+            aria-label="Phạm vi lịch sử nộp bài"
+            className="flex items-center rounded-xl border bg-muted/80 p-0.5 shadow-inner"
+          >
             <button
+              type="button"
               onClick={() => setScope('my')}
+              aria-pressed={scope === 'my'}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all',
+                'flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all duration-200 ease-smooth',
                 scope === 'my'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground shadow-subtle'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <User className="w-3.5 h-3.5" />
+              <User className="h-3.5 w-3.5" aria-hidden />
               <span>Của tôi</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setScope('all')}
+              aria-pressed={scope === 'all'}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all',
+                'flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all duration-200 ease-smooth',
                 scope === 'all'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground shadow-subtle'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <Users className="w-3.5 h-3.5" />
+              <Users className="h-3.5 w-3.5" aria-hidden />
               <span>Tất cả tài khoản</span>
             </button>
           </div>
 
-          <span className="text-xs text-muted-foreground font-medium hidden sm:inline">
+          <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
             ({submissions.length} bài nộp)
           </span>
         </div>
 
         <button
+          type="button"
           onClick={fetchHistory}
           disabled={loading}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-background hover:bg-muted text-xs font-semibold text-foreground transition shadow-sm"
+          className="flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs font-semibold text-foreground shadow-subtle transition hover:bg-muted disabled:opacity-60"
           title="Tải lại lịch sử nộp bài"
         >
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          <RefreshCw
+            className={cn('h-3.5 w-3.5', loading && 'animate-spin')}
+            aria-hidden
+          />
           <span>Làm mới</span>
         </button>
       </div>
@@ -238,28 +293,32 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
                     'Học sinh ẩn danh';
 
                   const isTeacher = sub.user?.role === 'TEACHER';
+                  const maxScore = sub.maxScore ?? 100;
+                  const isFullMark =
+                    sub.score != null && maxScore > 0 && sub.score >= maxScore;
 
                   return (
-                    <tr key={sub.id} className="hover:bg-muted/30 transition">
+                    <tr key={sub.id} className="transition hover:bg-muted/30">
                       {/* Cột Tài khoản / Người nộp */}
-                      <td className="px-3.5 py-3 whitespace-nowrap">
+                      <td className="whitespace-nowrap px-3.5 py-3">
                         <div className="flex items-center gap-1.5">
-                          <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-bold text-primary uppercase">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-[10px] font-bold uppercase text-primary">
                             {displayName.charAt(0)}
                           </div>
                           <div className="flex flex-col">
                             <div className="flex items-center gap-1">
-                              <span className="font-semibold text-foreground text-xs">
+                              <span className="text-xs font-semibold text-foreground">
                                 {displayName}
                               </span>
                               {isCurrentAccount && (
-                                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <span className="rounded border border-success/20 bg-success/15 px-1.5 py-px text-[10px] font-bold text-success">
                                   Tôi
                                 </span>
                               )}
                               {isTeacher && (
-                                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-0.5">
-                                  <ShieldCheck className="w-2.5 h-2.5" /> GV
+                                <span className="flex items-center gap-0.5 rounded border border-warning/20 bg-warning/15 px-1.5 py-px text-[10px] font-bold text-warning">
+                                  <ShieldCheck className="h-2.5 w-2.5" aria-hidden />{' '}
+                                  GV
                                 </span>
                               )}
                             </div>
@@ -273,39 +332,43 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
                       </td>
 
                       {/* Trạng thái chấm */}
-                      <td className="px-3.5 py-3 whitespace-nowrap">
-                        {getVerdictBadge(sub.verdict)}
+                      <td className="whitespace-nowrap px-3.5 py-3">
+                        {getVerdictBadge(sub.verdict, sub.status)}
                       </td>
 
                       {/* Điểm số */}
-                      <td className="px-3.5 py-3 whitespace-nowrap text-center font-mono font-bold">
-                        <span
-                          className={
-                            sub.score === (sub.maxScore || 100)
-                              ? 'text-emerald-500 font-extrabold text-sm'
-                              : sub.score === 0
-                              ? 'text-rose-500'
-                              : 'text-foreground'
-                          }
-                        >
-                          {sub.score ?? 0}/{sub.maxScore || 100}
-                        </span>
+                      <td className="whitespace-nowrap px-3.5 py-3 text-center font-mono font-bold tabular-nums">
+                        {sub.score == null ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span
+                            className={
+                              isFullMark
+                                ? 'text-sm font-extrabold text-success'
+                                : sub.score === 0
+                                  ? 'text-destructive'
+                                  : 'text-foreground'
+                            }
+                          >
+                            {formatScore(sub.score)}/{formatScore(maxScore)}
+                          </span>
+                        )}
                       </td>
 
-                      {/* Thời gian chạy */}
-                      <td className="px-3.5 py-3 whitespace-nowrap hidden sm:table-cell text-muted-foreground font-mono">
-                        {sub.executionTimeMs
+                      {/* Thời gian chạy — KHÔNG bịa số khi chưa đo được */}
+                      <td className="hidden whitespace-nowrap px-3.5 py-3 font-mono text-muted-foreground sm:table-cell">
+                        {sub.executionTimeMs != null
                           ? `${(sub.executionTimeMs / 1000).toFixed(3)}s`
-                          : '0.003s'}
+                          : '—'}
                       </td>
 
                       {/* Ngôn ngữ */}
-                      <td className="px-3.5 py-3 whitespace-nowrap hidden md:table-cell text-muted-foreground font-mono">
+                      <td className="hidden whitespace-nowrap px-3.5 py-3 font-mono text-muted-foreground md:table-cell">
                         {sub.language === 'cpp' ? 'C++ 17' : sub.language}
                       </td>
 
                       {/* Thời điểm nộp */}
-                      <td className="px-3.5 py-3 whitespace-nowrap text-right text-muted-foreground font-mono">
+                      <td className="whitespace-nowrap px-3.5 py-3 text-right font-mono text-muted-foreground">
                         {formatDate(sub.submittedAt)}
                       </td>
                     </tr>

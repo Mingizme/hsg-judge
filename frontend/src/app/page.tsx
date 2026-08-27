@@ -3,187 +3,335 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowRight, BookOpen, CheckCircle2, Flame, Trophy, Sparkles, Send } from 'lucide-react';
-import { ProblemCard, type Problem } from '@/components/problems/problem-card';
+import {
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  Flame,
+  Trophy,
+  Sparkles,
+  Send,
+  Workflow,
+  Cpu,
+} from 'lucide-react';
+import { ProblemCard } from '@/components/problems/problem-card';
+import {
+  API_BASE,
+  fetchJudgeHealth,
+  fetchProblemList,
+  type JudgeHealth,
+  type ProblemSummary,
+} from '@/lib/problems-api';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
 
+const HEATMAP_DAYS = 30;
+const PREVIEW_COUNT = 6;
+
+interface ActivityDay {
+  date: string;
+  count: number;
+}
+
+interface StudentProgress {
+  totalSolved?: number;
+  totalAttempted?: number;
+  totalSubmissions?: number;
+  streakDays?: number;
+  recentActivity?: ActivityDay[];
+}
+
+/** `yyyy-mm-dd` theo giờ địa phương — `toISOString()` lệch một ngày ở múi giờ +7 */
+function toLocalKey(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * Backend chỉ trả về những NGÀY CÓ lượt nộp (mảng thưa). Trước đây trang này
+ * thấy thiếu dữ liệu là sinh luôn 30 ngày bằng `Math.random()` — biểu đồ hoạt
+ * động hoàn toàn bịa. Nay luôn dựng đủ 30 ô và tra số thật theo ngày.
+ */
+function buildHeatmap(raw: unknown): ActivityDay[] {
+  const counts = new Map<string, number>();
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const date = String((item as ActivityDay)?.date ?? '').slice(0, 10);
+      const count = Number((item as ActivityDay)?.count ?? 0);
+      if (date) {
+        counts.set(date, (counts.get(date) ?? 0) + (Number.isFinite(count) ? count : 0));
+      }
+    }
+  }
+
+  const today = new Date();
+  return Array.from({ length: HEATMAP_DAYS }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (HEATMAP_DAYS - 1 - i));
+    const key = toLocalKey(d);
+    return { date: key, count: counts.get(key) ?? 0 };
+  });
+}
+
+/** 4 mức đậm nhạt kiểu GitHub, dùng token `success` nên khớp cả Sáng và Tối */
+function heatClass(count: number): string {
+  if (count <= 0) return 'bg-muted';
+  if (count === 1) return 'bg-success/30';
+  if (count <= 3) return 'bg-success/60';
+  return 'bg-success';
+}
+
 export default function Home() {
   const { user } = useAuth();
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [progress, setProgress] = useState<any>(null);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [problems, setProblems] = useState<ProblemSummary[]>([]);
+  const [totalProblems, setTotalProblems] = useState<number | null>(null);
+  const [loadingProblems, setLoadingProblems] = useState(true);
+  const [judge, setJudge] = useState<JudgeHealth | null>(null);
+  const [progress, setProgress] = useState<StudentProgress | null>(null);
+  const [heatmap, setHeatmap] = useState<ActivityDay[]>([]);
 
+  /** Danh sách xem trước + TỔNG SỐ BÀI THẬT (trước đây hiển thị `problems.length`
+   *  của một lần fetch `?limit=6`, nên kho 40 bài vẫn khoe "6 bài"). */
   useEffect(() => {
-    const fetchRecentProblems = async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-        const res = await fetch(`${apiUrl}/problems?limit=6`);
-        if (res.ok) {
-          const json = await res.json();
-          const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
-          if (Array.isArray(rawList)) {
-            setProblems(
-              rawList.map((p: any) => ({
-                id: p.id || p.code,
-                code: p.code,
-                title: p.title || `Bài tập ${p.code}`,
-                difficulty: p.difficulty || 'MEDIUM',
-                timeLimit: (p.timeLimitMs || 1000) / 1000,
-                memoryLimit: p.memoryLimitMb || 256,
-                category: p.categories?.map((c: any) => c.name || c.nameVi) || ['Tin học HSG'],
-                acRate: 50,
-                totalTests: p.totalTests || 24,
-              }))
-            );
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to fetch recent problems:', err);
-      }
-    };
-    fetchRecentProblems();
+    const controller = new AbortController();
+
+    fetchProblemList({ page: 1, limit: PREVIEW_COUNT }, controller.signal)
+      .then((data) => {
+        setProblems(data.problems);
+        setTotalProblems(data.total);
+        setLoadingProblems(false);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setLoadingProblems(false);
+      });
+
+    // Tên máy chấm THẬT thay cho chuỗi "Judge0 CE" ghi cứng
+    fetchJudgeHealth(controller.signal).then(setJudge);
+
+    return () => controller.abort();
   }, []);
 
-      useEffect(() => {
-    if (user) {
-      const fetchProgress = async () => {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-          const res = await fetch(`${apiUrl}/auth/progress/${user.id}`);
-          if (res.ok) {
-            const json = await res.json();
-            const data = json.data || json;
-            setProgress(data);
-            setRecentActivity(data.recentActivity || Array.from({length: 30}).map((_, i) => ({
-              date: new Date(Date.now() - (29 - i) * 86400000).toISOString().split('T')[0],
-              count: Math.floor(Math.random() * 3)
-            })));
-          }
-        } catch (err) {
-          console.warn('Failed to fetch progress:', err);
-        }
-      };
-      fetchProgress();
+  useEffect(() => {
+    if (!user) {
+      setProgress(null);
+      setHeatmap([]);
+      return;
     }
+    const controller = new AbortController();
+
+    fetch(`${API_BASE}/auth/progress/${user.id}`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!json) return;
+        const data: StudentProgress = json.data ?? json;
+        setProgress(data);
+        setHeatmap(buildHeatmap(data.recentActivity));
+      })
+      .catch(() => {
+        /* Render miễn phí có thể đang khởi động lại — im lặng, không bịa số */
+      });
+
+    return () => controller.abort();
   }, [user]);
 
+  const stats = [
+    {
+      label: 'Bài tập trong kho',
+      value: totalProblems === null ? 'Đang tải…' : String(totalProblems),
+      hint: 'Số bài thật lấy từ máy chủ',
+      icon: BookOpen,
+      tone: 'text-primary',
+    },
+    {
+      label: 'Máy chấm',
+      value: judge?.engineLabel ?? 'Đang kiểm tra…',
+      hint: judge?.timeAccuracy,
+      icon: Cpu,
+      tone: 'text-success',
+    },
+    {
+      label: 'Sơ đồ thuật toán',
+      value: 'Tương tác',
+      hint: 'Dựng từ code mẫu, chạy thử từng bước',
+      icon: Workflow,
+      tone: 'text-info',
+    },
+    {
+      label: 'Bảng xếp hạng',
+      value: 'Thời gian thực',
+      hint: 'Cập nhật ngay sau mỗi lượt nộp',
+      icon: Trophy,
+      tone: 'text-warning',
+    },
+  ];
+
   return (
-    <div className="container mx-auto px-4 py-8 md:py-12 space-y-16">
-      {/* Hero Section */}
-      <motion.section 
-        className="flex flex-col items-center text-center space-y-6"
+    <div className="container mx-auto max-w-7xl space-y-16 px-4 py-10 md:py-14">
+      {/* Hero */}
+      <motion.section
+        className="flex flex-col items-center space-y-6 text-center"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-primary/10 text-primary text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5" /> Nền tảng Chấm Chuẩn HSG Quốc Gia
+        <div className="inline-flex items-center gap-2 rounded-full border bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          Nền tảng chấm bài chuẩn HSG Tin học
         </div>
-        <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight">
+        <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight md:text-6xl">
           Luyện thi{' '}
-          <span className="bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">
+          <span className="bg-gradient-brand bg-clip-text text-transparent">
             HSG Tin học
           </span>
         </h1>
-        <p className="text-lg md:text-xl text-muted-foreground max-w-[600px]">
-          Hệ thống luyện thi chuyên sâu C++ dành cho học sinh giỏi. Chấm bài tự động thời gian thực với sơ đồ thuật toán và lời giải chi tiết.
+        <p className="max-w-[620px] text-lg text-muted-foreground md:text-xl">
+          Đề thi PDF, hướng dẫn của giáo viên, sơ đồ thuật toán tương tác và
+          chấm điểm tự động theo từng test — tất cả trong một không gian làm bài.
         </p>
-        <Link 
-          href="/problems"
-          className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all hover:scale-105 shadow-lg shadow-primary/25"
-        >
-          Bắt đầu luyện tập
-          <ArrowRight className="h-5 w-5" />
-        </Link>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Link
+            href="/problems"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 font-semibold text-primary-foreground shadow-glow transition-all duration-300 ease-smooth hover:bg-primary/90 hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            Bắt đầu luyện tập
+            <ArrowRight className="h-5 w-5" aria-hidden />
+          </Link>
+          <Link
+            href="/leaderboard"
+            className="inline-flex items-center justify-center gap-2 rounded-full border bg-card px-8 py-4 font-semibold text-foreground shadow-subtle transition-all duration-300 ease-smooth hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Trophy className="h-4 w-4" aria-hidden />
+            Bảng xếp hạng
+          </Link>
+        </div>
       </motion.section>
 
-      {/* Stats Section */}
-      <motion.section 
-        className="grid grid-cols-2 md:grid-cols-4 gap-4"
+      {/* Thẻ số liệu */}
+      <motion.section
+        className="grid grid-cols-2 gap-4 md:grid-cols-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
+        transition={{ duration: 0.5, delay: 0.15 }}
       >
-        {[
-          { label: 'Số bài tập', value: problems.length > 0 ? `${problems.length}+` : 'Đang cập nhật', icon: BookOpen, color: 'text-blue-500' },
-          { label: 'Hệ thống chấm', value: 'Judge0 CE', icon: CheckCircle2, color: 'text-green-500' },
-          { label: 'Sơ đồ thuật toán', value: 'Interactive', icon: Flame, color: 'text-orange-500' },
-          { label: 'Bảng xếp hạng', value: 'Realtime', icon: Trophy, color: 'text-yellow-500' },
-        ].map((stat, i) => (
-          <div key={i} className="flex flex-col items-center p-6 rounded-2xl border bg-card text-card-foreground shadow-sm">
-            <stat.icon className={`h-8 w-8 mb-3 ${stat.color}`} />
-            <span className="text-xl md:text-2xl font-bold">{stat.value}</span>
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className="flex flex-col items-center gap-1 rounded-2xl border bg-card p-6 text-center shadow-subtle transition-shadow duration-300 hover:shadow-card"
+          >
+            <stat.icon className={cn('mb-2 h-8 w-8', stat.tone)} aria-hidden />
+            <span className="text-lg font-bold leading-tight md:text-xl">
+              {stat.value}
+            </span>
             <span className="text-xs text-muted-foreground">{stat.label}</span>
+            {stat.hint && (
+              <span className="text-[10px] leading-snug text-muted-foreground/70">
+                {stat.hint}
+              </span>
+            )}
           </div>
         ))}
       </motion.section>
 
-      {/* Student Progress Section - only show when logged in */}
+      {/* Tiến độ — chỉ hiện khi đã đăng nhập */}
       {user && (
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
+          transition={{ duration: 0.5, delay: 0.25 }}
           className="space-y-6"
         >
-          <h2 className="text-2xl font-bold">Tiến độ học tập</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 text-green-500 mb-2">
-                <CheckCircle2 className="w-5 h-5" /> <span className="font-semibold text-sm">Bài đã giải</span>
+          <h2 className="text-2xl font-bold tracking-tight">Tiến độ học tập</h2>
+
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {[
+              { label: 'Bài đã giải', value: String(progress?.totalSolved ?? 0), icon: CheckCircle2, tone: 'text-success' },
+              { label: 'Bài đã thử', value: String(progress?.totalAttempted ?? 0), icon: BookOpen, tone: 'text-primary' },
+              { label: 'Chuỗi ngày liên tục', value: `${progress?.streakDays ?? 0} ngày`, icon: Flame, tone: 'text-warning' },
+              { label: 'Tổng lượt nộp', value: String(progress?.totalSubmissions ?? 0), icon: Send, tone: 'text-info' },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex flex-col rounded-2xl border bg-card p-4 shadow-subtle"
+              >
+                <div className={cn('mb-2 flex items-center gap-2', item.tone)}>
+                  <item.icon className="h-5 w-5" aria-hidden />
+                  <span className="text-sm font-semibold">{item.label}</span>
+                </div>
+                <span className="text-2xl font-bold tabular-nums">{item.value}</span>
               </div>
-              <span className="text-2xl font-bold">{progress?.totalSolved || 0}</span>
-            </div>
-            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 text-blue-500 mb-2">
-                <BookOpen className="w-5 h-5" /> <span className="font-semibold text-sm">Bài đã thử</span>
-              </div>
-              <span className="text-2xl font-bold">{progress?.totalAttempted || 0}</span>
-            </div>
-            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 text-orange-500 mb-2">
-                <Flame className="w-5 h-5" /> <span className="font-semibold text-sm">Streak</span>
-              </div>
-              <span className="text-2xl font-bold">{progress?.streakDays || 0} ngày</span>
-            </div>
-            <div className="flex flex-col p-4 bg-card border rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 text-purple-500 mb-2">
-                <Send className="w-5 h-5" /> <span className="font-semibold text-sm">Tổng nộp</span>
-              </div>
-              <span className="text-2xl font-bold">{progress?.totalSubmissions || 0}</span>
-            </div>
+            ))}
           </div>
-          {/* Activity heatmap - last 30 days */}
-          <div className="mt-4 p-4 bg-card border rounded-xl">
-            <h3 className="text-sm font-semibold mb-2">Hoạt động 30 ngày gần đây</h3>
-            <div className="flex gap-1 flex-wrap">
-              {recentActivity.map(day => (
-                <div key={day.date} className={cn('w-4 h-4 rounded-sm', day.count > 0 ? 'bg-emerald-500' : 'bg-muted')} title={`${day.date}: ${day.count} bài nộp`} />
+
+          {/* Biểu đồ hoạt động 30 ngày — số liệu thật, ngày không nộp là ô xám */}
+          <div className="rounded-2xl border bg-card p-4 shadow-subtle">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Hoạt động 30 ngày gần đây</h3>
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span>Ít</span>
+                {['bg-muted', 'bg-success/30', 'bg-success/60', 'bg-success'].map((c) => (
+                  <span key={c} className={cn('h-3 w-3 rounded-sm', c)} aria-hidden />
+                ))}
+                <span>Nhiều</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(heatmap.length > 0 ? heatmap : buildHeatmap(null)).map((day) => (
+                <div
+                  key={day.date}
+                  className={cn('h-4 w-4 rounded-sm', heatClass(day.count))}
+                  title={`${day.date}: ${day.count} lượt nộp`}
+                />
               ))}
             </div>
           </div>
         </motion.section>
       )}
 
-      {/* Recent Problems */}
+      {/* Bài tập mới nhất */}
       <motion.section
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
+        transition={{ duration: 0.5, delay: 0.35 }}
         className="space-y-6"
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold">Bài tập mới nhất</h2>
-          <Link href="/problems" className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
-            Xem tất cả ({problems.length} bài) <ArrowRight className="h-4 w-4" />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Bài tập mới nhất</h2>
+          <Link
+            href="/problems"
+            className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            {totalProblems === null
+              ? 'Xem tất cả'
+              : `Xem tất cả (${totalProblems} bài)`}
+            <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {problems.map((problem) => (
-            <ProblemCard key={problem.id} problem={problem} />
-          ))}
-        </div>
+
+        {loadingProblems ? (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: PREVIEW_COUNT }).map((_, i) => (
+              <div
+                key={i}
+                className="h-[188px] animate-pulse rounded-2xl border bg-muted/40"
+                aria-hidden
+              />
+            ))}
+            <span className="sr-only">Đang tải bài tập…</span>
+          </div>
+        ) : problems.length === 0 ? (
+          <div className="rounded-2xl border bg-card p-12 text-center text-xs text-muted-foreground">
+            Chưa tải được bài tập nào. Máy chủ miễn phí có thể đang “ngủ” —
+            hãy thử lại sau vài giây.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {problems.map((problem) => (
+              <ProblemCard key={problem.id} problem={problem} />
+            ))}
+          </div>
+        )}
       </motion.section>
     </div>
   );

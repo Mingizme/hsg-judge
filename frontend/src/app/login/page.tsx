@@ -4,100 +4,141 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { Code2, LogIn, AlertCircle, ArrowRight, ShieldCheck, GraduationCap } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import {
+  Code2,
+  LogIn,
+  AlertCircle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+} from 'lucide-react';
+import {
+  AuthCard,
+  Field,
+  inputClass,
+  primaryButtonClass,
+} from '@/components/ui/form-field';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const busy = submitting || isLoading;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setError(null);
     setSubmitting(true);
 
-    const res = await login(email, password);
-    setSubmitting(false);
+    const res = await login(email.trim(), password);
 
     if (res.error) {
+      // KHÔNG tắt cờ `submitting` ở nhánh thành công: điều hướng cần một
+      // nhịp nữa, tắt sớm khiến nút sáng lại và học sinh bấm lần hai.
+      setSubmitting(false);
       setError(res.error);
-    } else {
-      router.push('/problems');
+      return;
     }
+    router.push('/problems');
   };
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 bg-muted/20">
-      <div className="w-full max-w-md p-8 rounded-2xl border bg-card shadow-xl space-y-6 animate-in fade-in zoom-in-95">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2">
-            <Code2 className="w-6 h-6" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Đăng nhập HSG Judge</h1>
-          <p className="text-xs text-muted-foreground">
-            Đăng nhập để lưu tiến độ làm bài, bảng xếp hạng và nộp code C++.
-          </p>
+    <AuthCard>
+      <div className="space-y-2 text-center">
+        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Code2 className="h-6 w-6" aria-hidden />
         </div>
+        <h1 className="text-2xl font-bold tracking-tight">Đăng nhập HSG Judge</h1>
+        <p className="text-xs text-muted-foreground">
+          Đăng nhập để lưu tiến độ làm bài, xếp hạng và nộp code C++ lên máy chấm.
+        </p>
+      </div>
 
-        {/* Error alert */}
-        {error && (
-          <div className="p-3 rounded-xl border bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{error}</span>
+        </div>
+      )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Email đăng nhập</label>
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Field id="login-email" label="Email đăng nhập">
+          <input
+            id="login-email"
+            name="email"
+            type="email"
+            required
+            autoComplete="email"
+            autoFocus
+            disabled={busy}
+            aria-invalid={!!error}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="hocsinh@hsg.edu.vn"
+            className={inputClass}
+          />
+        </Field>
+
+        <Field id="login-password" label="Mật khẩu">
+          <div className="relative">
             <input
-              type="email"
+              id="login-password"
+              name="password"
+              type={showPassword ? 'text' : 'password'}
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="hocsinh@hsg.edu.vn"
-              className="w-full px-3.5 py-2 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-center text-xs">
-              <label className="font-semibold text-muted-foreground">Mật khẩu</label>
-            </div>
-            <input
-              type="password"
-              required
+              autoComplete="current-password"
+              disabled={busy}
+              aria-invalid={!!error}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-3.5 py-2 rounded-xl border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className={`${inputClass} pr-10`}
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              aria-pressed={showPassword}
+              className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" aria-hidden />
+              ) : (
+                <Eye className="h-4 w-4" aria-hidden />
+              )}
+            </button>
           </div>
+        </Field>
 
-          <button
-            type="submit"
-            disabled={submitting || isLoading}
-            className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-sm hover:bg-primary/90 transition flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <LogIn className="w-4 h-4" />
-            {submitting ? 'Đang xác thực...' : 'Đăng nhập'}
-          </button>
-        </form>
+        <button type="submit" disabled={busy} className={primaryButtonClass}>
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <LogIn className="h-4 w-4" aria-hidden />
+          )}
+          {busy ? 'Đang xác thực…' : 'Đăng nhập'}
+        </button>
+      </form>
 
-        {/* Footer */}
-        <div className="text-center pt-2 border-t border-border/50 text-xs text-muted-foreground">
-          Chưa có tài khoản?{' '}
-          <Link href="/register" className="font-semibold text-primary hover:underline inline-flex items-center gap-0.5">
-            Đăng ký ngay <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
+      <div className="border-t border-border/50 pt-3 text-center text-xs text-muted-foreground">
+        Chưa có tài khoản?{' '}
+        <Link
+          href="/register"
+          className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+        >
+          Đăng ký ngay <ArrowRight className="h-3 w-3" aria-hidden />
+        </Link>
       </div>
-    </div>
+    </AuthCard>
   );
 }

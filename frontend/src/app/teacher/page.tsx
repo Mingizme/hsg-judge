@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DifficultyBadge } from '@/components/problems/difficulty-badge';
+import { API_BASE } from '@/lib/api-config';
 
 interface IngestedProblem {
   code: string;
@@ -42,6 +43,11 @@ interface IngestedProblem {
   ioFileName: string;
   hasPdf: boolean;
   hasSolution: boolean;
+  /** Đã có hướng dẫn trích từ .docx chưa */
+  hasGuide: boolean;
+  /** Bài nháp chưa publish sẽ không hiện với học sinh */
+  isPublished: boolean;
+  totalSubtasks: number;
   maxScore: number;
   subtasks: {
     id: string;
@@ -90,12 +96,9 @@ export default function TeacherPortalPage() {
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
 
-  const API_URL =
-    process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-
   const fetchAnalytics = async (code: string) => {
     try {
-      const res = await fetch(`${API_URL}/problems/${code}/analytics`);
+      const res = await fetch(`${API_BASE}/problems/${code}/analytics`);
       if (res.ok) {
         const json = await res.json();
         setAnalytics(json.data || json);
@@ -114,9 +117,16 @@ export default function TeacherPortalPage() {
     fetchAnalytics(prob.code);
   };
 
+  /**
+   * Danh sách cho Teacher Portal.
+   *
+   * Hai lỗi cũ: gọi `/problems` trần nên (1) chỉ nhận 20 bài đầu do phân trang
+   * mặc định — kho 40 bài thì một nửa biến mất khỏi bảng quản trị, và (2) thiếu
+   * `includeUnpublished` nên chính bài nháp giáo viên vừa nạp lại không hiện ra.
+   */
   const fetchProblems = React.useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/problems`);
+      const res = await fetch(`${API_BASE}/problems?includeUnpublished=true&limit=100`);
       if (res.ok) {
         const json = await res.json();
         const rawList = json.problems || json.data?.problems || json.data?.items || json.data || json;
@@ -126,15 +136,19 @@ export default function TeacherPortalPage() {
               code: p.code,
               title: p.title || p.code,
               difficulty: p.difficulty || 'MEDIUM',
-              category: p.categories?.map((c: any) => c.name || c.nameVi) || ['Tin học HSG'],
+              category: p.categories?.map((c: any) => c.nameVi || c.name).filter(Boolean) || [],
               createdBy: p.createdBy || null,
               totalTests: p.totalTests || 0,
               ioType: p.ioType || 'STANDARD',
               ioFileName: p.ioFileName || p.code?.toLowerCase() || '',
               hasPdf: Boolean(p.pdfUrl),
-              hasSolution: true,
+              // Số thật từ backend (`_count.solutionCodes`) — trước đây ghi cứng `true`
+              hasSolution: Number(p.totalSolutions ?? 0) > 0,
+              hasGuide: Boolean(p.hasGuide),
+              isPublished: p.isPublished !== false,
+              totalSubtasks: Number(p.totalSubtasks ?? 0),
               maxScore: p.maxScore || 100,
-              subtasks: p.subtasks && p.subtasks.length > 0 ? p.subtasks : [],
+              subtasks: Array.isArray(p.subtasks) ? p.subtasks : [],
             }))
           );
         }
@@ -142,7 +156,7 @@ export default function TeacherPortalPage() {
     } catch (err) {
       console.warn('Teacher problems fetch notice:', err);
     }
-  }, [API_URL]);
+  }, []);
 
   React.useEffect(() => {
     fetchProblems();
@@ -186,7 +200,7 @@ export default function TeacherPortalPage() {
     formData.append('memoryLimitMb', settingMemoryLimit);
 
     try {
-      const res = await fetch(`${API_URL}/ingestion/upload-zip`, {
+      const res = await fetch(`${API_BASE}/ingestion/upload-zip`, {
         method: 'POST',
         body: formData,
       });
@@ -227,7 +241,7 @@ export default function TeacherPortalPage() {
     setIsScanning(true);
     setUploadMessage(null);
     try {
-      const res = await fetch(`${API_URL}/ingestion/scan-directory`, {
+      const res = await fetch(`${API_BASE}/ingestion/scan-directory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dataDir: '../Data' }),
@@ -310,7 +324,7 @@ export default function TeacherPortalPage() {
     return (
       <div className="container mx-auto px-4 py-20 max-w-md">
         <div className="bg-card border rounded-2xl p-8 shadow-xl text-center space-y-6">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+          <div className="w-16 h-16 rounded-2xl bg-warning/10 border border-warning/30 text-warning flex items-center justify-center mx-auto shadow-inner">
             <ShieldAlert className="w-8 h-8" />
           </div>
           <div className="space-y-2">
@@ -344,7 +358,7 @@ export default function TeacherPortalPage() {
       <div className="container mx-auto px-4 py-16 max-w-lg">
         <div className="bg-card border rounded-2xl p-8 shadow-xl space-y-6">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center shrink-0">
+            <div className="w-14 h-14 rounded-2xl bg-warning/10 border border-warning/30 text-warning flex items-center justify-center shrink-0">
               <KeyRound className="w-7 h-7" />
             </div>
             <div>
@@ -357,20 +371,29 @@ export default function TeacherPortalPage() {
 
           <form onSubmit={handleUpgradeRole} className="space-y-4 pt-2">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              <label
+                htmlFor="teacher-secret"
+                className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+              >
                 Mã bí mật xác thực Giáo viên (Invite Code)
               </label>
               <input
+                id="teacher-secret"
+                name="teacher-secret"
                 type="password"
+                autoComplete="off"
                 placeholder="Nhập mã bí mật..."
                 value={teacherSecretCode}
                 onChange={(e) => setTeacherSecretCode(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="w-full px-3.5 py-2.5 rounded-xl border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/70"
               />
             </div>
 
             {upgradeError && (
-              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+              <div
+                role="alert"
+                className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-center gap-2"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{upgradeError}</span>
               </div>
@@ -379,7 +402,7 @@ export default function TeacherPortalPage() {
             <button
               type="submit"
               disabled={isUpgrading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold text-sm hover:opacity-95 transition shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition shadow-elevated flex items-center justify-center gap-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {isUpgrading ? (
                 <>
@@ -427,16 +450,17 @@ export default function TeacherPortalPage() {
       {/* Message Banner */}
       {uploadMessage && (
         <div
+          role="alert"
           className={cn(
             'p-4 rounded-2xl border text-sm flex items-center justify-between gap-3 shadow-md animate-in fade-in slide-in-from-top-2',
             uploadMessage.type === 'success'
-              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+              ? 'bg-success/10 border-success/40 text-success'
               : 'bg-destructive/10 border-destructive/30 text-destructive'
           )}
         >
           <div className="flex items-center gap-2.5">
             {uploadMessage.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
             ) : (
               <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
             )}
@@ -506,7 +530,7 @@ export default function TeacherPortalPage() {
             </div>
 
             <div className="p-4 rounded-xl bg-muted/30 border space-y-2">
-              <div className="font-semibold text-amber-500 flex items-center gap-1.5">
+              <div className="font-semibold text-warning flex items-center gap-1.5">
                 <Sliders className="w-4 h-4" /> Thư mục Test/
               </div>
               <ul className="space-y-1 text-muted-foreground list-disc list-inside leading-relaxed">
@@ -552,13 +576,15 @@ export default function TeacherPortalPage() {
                 <th className="px-4 py-3">Chuẩn I/O</th>
                 <th className="px-4 py-3">Đề PDF</th>
                 <th className="px-4 py-3">Lời Giải</th>
+                <th className="px-4 py-3">Hướng Dẫn</th>
+                <th className="px-4 py-3">Trạng Thái</th>
                 <th className="px-4 py-3 text-right">Thao Tác</th>
               </tr>
             </thead>
             <tbody className="divide-y font-mono">
               {problems.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground font-sans text-xs">
+                  <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground font-sans text-xs">
                     Chưa có bài tập nào. Hãy chọn file .ZIP để tải bài lên hệ thống!
                   </td>
                 </tr>
@@ -578,13 +604,24 @@ export default function TeacherPortalPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3.5 font-sans">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-lg">
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-info/30 bg-info/10 px-2 py-0.5 text-[11px] font-semibold text-info">
                         <UserCheck className="w-3 h-3" /> {p.createdBy || 'Ban Chuyên Môn'}
                       </span>
                     </td>
                     <td className="px-4 py-3.5 font-sans">
-                      <span className="inline-flex items-center gap-1 text-emerald-500 font-semibold">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> {p.totalTests} tests
+                      {/* Bài chưa có test thì KHÔNG được khoe dấu tích xanh */}
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 font-semibold',
+                          p.totalTests > 0 ? 'text-success' : 'text-warning',
+                        )}
+                      >
+                        {p.totalTests > 0 ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5" />
+                        )}
+                        {p.totalTests} tests
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
@@ -592,11 +629,34 @@ export default function TeacherPortalPage() {
                         {p.ioType === 'FILE' ? `freopen("${p.ioFileName}.inp")` : 'cin / cout'}
                       </code>
                     </td>
+                    {/* Ba cột dưới đây trước đây ghi cứng "✓ Đã nạp" / "✓ Đã có
+                        code C++" cho MỌI bài, kể cả bài thiếu hẳn file — giáo
+                        viên không thể biết gói đề nào nạp lỗi. */}
                     <td className="px-4 py-3.5 font-sans">
-                      <span className="text-emerald-500 font-medium">✓ Đã nạp</span>
+                      <AssetFlag ok={p.hasPdf} okText="Đã nạp" missText="Thiếu PDF" />
                     </td>
                     <td className="px-4 py-3.5 font-sans">
-                      <span className="text-emerald-500 font-medium">✓ Đã có code C++</span>
+                      <AssetFlag ok={p.hasSolution} okText="Có code C++" missText="Thiếu .cpp" />
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <AssetFlag ok={p.hasGuide} okText="Có .docx" missText="Chưa có" />
+                    </td>
+                    <td className="px-4 py-3.5 font-sans">
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold',
+                          p.isPublished
+                            ? 'border-success/30 bg-success/10 text-success'
+                            : 'border-warning/30 bg-warning/10 text-warning',
+                        )}
+                      >
+                        {p.isPublished ? 'Đã phát hành' : 'Bản nháp'}
+                      </span>
+                      {p.totalSubtasks > 0 && (
+                        <span className="ml-1.5 text-[10px] text-muted-foreground">
+                          {p.totalSubtasks} subtask
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3.5 text-right font-sans space-x-2">
                       <Link
@@ -815,11 +875,17 @@ export default function TeacherPortalPage() {
                     </div>
                     <div className="p-2.5 rounded-lg bg-card border">
                       <div className="text-muted-foreground text-[10px]">Điểm trung bình</div>
-                      <div className="text-lg font-bold text-amber-500 mt-0.5">{analytics.avgScore || 0}đ</div>
+                      {/* `avgScore`/`passRate` là số thực từ Postgres (VD 63.33333…).
+                          Trước đây in thẳng nên ô thống kê tràn chữ số. */}
+                      <div className="text-lg font-bold text-warning mt-0.5">
+                        {Math.round(Number(analytics.avgScore) || 0)}đ
+                      </div>
                     </div>
                     <div className="p-2.5 rounded-lg bg-card border">
-                      <div className="text-muted-foreground text-[10px]">Tỷ lệ AC 100đ</div>
-                      <div className="text-lg font-bold text-emerald-500 mt-0.5">{analytics.passRate || 0}%</div>
+                      <div className="text-muted-foreground text-[10px]">Tỷ lệ AC</div>
+                      <div className="text-lg font-bold text-success mt-0.5">
+                        {Math.round(Number(analytics.passRate) || 0)}%
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -920,5 +986,32 @@ export default function TeacherPortalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Cờ trạng thái tài nguyên của một bài (PDF / lời giải / hướng dẫn) */
+function AssetFlag({
+  ok,
+  okText,
+  missText,
+}: {
+  ok: boolean;
+  okText: string;
+  missText: string;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 text-[11px] font-medium',
+        ok ? 'text-success' : 'text-muted-foreground',
+      )}
+    >
+      {ok ? (
+        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+      ) : (
+        <X className="h-3.5 w-3.5" aria-hidden />
+      )}
+      {ok ? okText : missText}
+    </span>
   );
 }

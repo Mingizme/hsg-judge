@@ -1,8 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Flame, Search, RefreshCw, ShieldCheck, GraduationCap } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Trophy,
+  Medal,
+  Flame,
+  Search,
+  RefreshCw,
+  ShieldCheck,
+  GraduationCap,
+  Users,
+  CheckCircle2,
+  AlertTriangle,
+  Crown,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { API_BASE } from '@/lib/api-config';
+import { useAuth } from '@/contexts/auth-context';
 
 export interface LeaderboardUser {
   rank: number;
@@ -15,256 +29,507 @@ export interface LeaderboardUser {
   solvedCount: number;
   totalScore: number;
   totalSubmissions: number;
-  streakDays: number;
-  tier: 'Grandmaster' | 'Master' | 'Candidate Master' | 'Expert' | 'Specialist';
+  tier: string;
   tierColor: string;
 }
 
+/** Chỉ nhận mã màu hex — `tierColor` từ API được nhúng thẳng vào `style` */
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+function safeTierColor(value: unknown): string | null {
+  return typeof value === 'string' && HEX_COLOR.test(value.trim())
+    ? value.trim()
+    : null;
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Chuẩn hoá một dòng xếp hạng.
+ *
+ * Trước đây trang này tin tuyệt đối vào API: `s.name.toLowerCase()` trong bộ lọc
+ * và `s.name.charAt(0)` cho avatar đều nổ TypeError nếu một tài khoản thiếu tên
+ * hoặc thiếu trường `school` — cả bảng xếp hạng trắng xoá vì một hàng lỗi.
+ */
+function mapRow(raw: Record<string, any>, index: number): LeaderboardUser {
+  const role = raw?.role === 'TEACHER' ? 'TEACHER' : 'STUDENT';
+  const email = text(raw?.email);
+  return {
+    rank: num(raw?.rank) || index + 1,
+    id: text(raw?.id) || email || `row-${index}`,
+    name: text(raw?.name) || text(raw?.displayName) || email.split('@')[0] || 'Ẩn danh',
+    email,
+    role,
+    isTeacher: raw?.isTeacher === true || role === 'TEACHER',
+    school: text(raw?.school),
+    solvedCount: num(raw?.solvedCount),
+    totalScore: num(raw?.totalScore),
+    totalSubmissions: num(raw?.totalSubmissions),
+    tier: text(raw?.tier) || 'Specialist',
+    tierColor: text(raw?.tierColor),
+  };
+}
+
+/** Huy hiệu bục vinh danh: hạng 1 vàng, 2 bạc, 3 đồng — dùng token màu của theme */
+const PODIUM = [
+  {
+    label: 'Quán quân',
+    ring: 'border-warning/60',
+    bg: 'bg-warning/5',
+    chip: 'bg-warning text-background',
+    icon: Crown,
+    iconClass: 'text-warning',
+  },
+  {
+    label: 'Á quân',
+    ring: 'border-border',
+    bg: 'bg-surface/60',
+    chip: 'bg-muted-foreground text-background',
+    icon: Medal,
+    iconClass: 'text-muted-foreground',
+  },
+  {
+    label: 'Hạng ba',
+    ring: 'border-info/40',
+    bg: 'bg-info/5',
+    chip: 'bg-info text-background',
+    icon: Medal,
+    iconClass: 'text-info',
+  },
+] as const;
+
+function PodiumCard({
+  user,
+  place,
+  isSelf,
+}: {
+  user?: LeaderboardUser;
+  place: 0 | 1 | 2;
+  isSelf: boolean;
+}) {
+  const meta = PODIUM[place];
+  const Icon = meta.icon;
+  const isChampion = place === 0;
+
+  if (!user) {
+    return (
+      <div
+        className={cn(
+          'hidden items-center justify-center rounded-2xl border border-dashed p-6 text-center text-xs text-muted-foreground md:flex',
+          isChampion ? 'order-1 md:order-2' : place === 1 ? 'order-2 md:order-1' : 'order-3',
+        )}
+      >
+        Chưa có ai giữ {meta.label.toLowerCase()}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        'group relative flex flex-col items-center overflow-hidden rounded-2xl border p-6 text-center',
+        'transition-all duration-300 ease-smooth hover:-translate-y-0.5',
+        meta.ring,
+        meta.bg,
+        isChampion
+          ? 'order-1 shadow-elevated md:order-2 md:scale-[1.04] md:hover:shadow-glow'
+          : place === 1
+            ? 'order-2 shadow-card md:order-1'
+            : 'order-3 shadow-card',
+      )}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-2 text-4xl font-black text-foreground/5"
+      >
+        #{user.rank}
+      </span>
+
+      <div
+        className={cn(
+          'relative mb-4 flex items-center justify-center rounded-full border-4 bg-background',
+          meta.ring,
+          isChampion ? 'h-20 w-20' : 'h-16 w-16',
+        )}
+      >
+        <Icon className={cn(isChampion ? 'h-9 w-9' : 'h-7 w-7', meta.iconClass)} aria-hidden />
+        <span
+          className={cn(
+            'absolute -bottom-2.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-bold shadow-subtle',
+            meta.chip,
+          )}
+        >
+          {meta.label}
+        </span>
+      </div>
+
+      <h3
+        className={cn(
+          'flex items-center justify-center gap-1.5 font-bold text-foreground',
+          isChampion ? 'text-lg' : 'text-base',
+        )}
+      >
+        <span className="line-clamp-1">{user.name}</span>
+        {user.isTeacher && <ShieldCheck className="h-4 w-4 shrink-0 text-warning" aria-label="Giáo viên" />}
+        {isSelf && (
+          <span className="shrink-0 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+            Tôi
+          </span>
+        )}
+      </h3>
+      {user.school && (
+        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{user.school}</p>
+      )}
+
+      <div className="mt-4 flex items-center gap-3 font-mono text-xs">
+        <span className="font-bold text-success">{user.solvedCount} bài AC</span>
+        <span className="text-border">|</span>
+        <span className={cn('font-bold', isChampion ? 'text-warning' : 'text-primary')}>
+          {user.totalScore} điểm
+        </span>
+      </div>
+
+      {isChampion && (
+        <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-0.5 text-[11px] font-medium text-warning">
+          <Flame className="h-3.5 w-3.5" aria-hidden /> {user.totalSubmissions} lần nộp
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: number;
+  tone: string;
+}) {
+  return (
+    <div className="rounded-xl border bg-card/60 p-3.5 shadow-subtle">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className={cn('h-3.5 w-3.5', tone)} aria-hidden />
+        {label}
+      </div>
+      <div className={cn('mt-1 font-mono text-xl font-bold', tone)}>{value}</div>
+    </div>
+  );
+}
+
 export default function LeaderboardPage() {
-  const [students, setStudents] = useState<LeaderboardUser[]>([]);
+  const { user } = useAuth();
+  const [rows, setRows] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
+    setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-      const res = await fetch(`${apiUrl}/auth/leaderboard`);
-      if (res.ok) {
-        const json = await res.json();
-        setStudents(json.data || []);
-      }
+      const res = await fetch(`${API_BASE}/auth/leaderboard`, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const list = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json)
+          ? json
+          : [];
+      setRows(list.map(mapRow));
     } catch (err) {
-      console.error('Failed to fetch leaderboard:', err);
+      if ((err as Error).name === 'AbortError') return;
+      // Trước đây lỗi mạng chỉ được `console.error`: người dùng thấy bảng trống
+      // và tưởng chưa ai nộp bài, thay vì biết là máy chấm đang ngủ.
+      setError(
+        'Không tải được bảng xếp hạng. Máy chủ trên Render free tier có thể đang khởi động lại (mất ~30 giây).',
+      );
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchLeaderboard();
   }, []);
 
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.school.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchTerm.toLowerCase())
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchLeaderboard(controller.signal);
+    return () => controller.abort();
+  }, [fetchLeaderboard]);
+
+  /** API có thể trả id Supabase hoặc email → so khớp cả hai để gắn nhãn "Tôi" */
+  const selfId = (user?.id || '').toLowerCase();
+  const selfEmail = (user?.email || '').toLowerCase();
+  const isSelf = useCallback(
+    (row: LeaderboardUser) =>
+      (!!selfId && row.id.toLowerCase() === selfId) ||
+      (!!selfEmail && row.email.toLowerCase() === selfEmail),
+    [selfId, selfEmail],
   );
 
-  const top1 = students[0];
-  const top2 = students[1];
-  const top3 = students[2];
+  const filtered = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.school.toLowerCase().includes(q),
+    );
+  }, [rows, searchTerm]);
+
+  const totals = useMemo(
+    () => ({
+      players: rows.length,
+      solved: rows.reduce((sum, s) => sum + s.solvedCount, 0),
+      submissions: rows.reduce((sum, s) => sum + s.totalSubmissions, 0),
+    }),
+    [rows],
+  );
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="container mx-auto max-w-6xl space-y-8 px-4 py-8">
+      <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-1">
-            <Trophy className="w-4 h-4 text-amber-500" /> Bảng Vinh Danh Tuyển Thủ
+          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-primary">
+            <Trophy className="h-4 w-4 text-warning" aria-hidden />
+            Bảng vinh danh tuyển thủ
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Bảng Xếp Hạng Thực Tế</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Dữ liệu xếp hạng thời gian thực dựa trên số bài AC và tổng điểm chấm tự động.
+          <h1 className="bg-gradient-brand bg-clip-text text-3xl font-bold tracking-tight text-transparent">
+            Bảng xếp hạng
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Xếp hạng thời gian thực theo số bài AC và tổng điểm máy chấm cộng tự động.
           </p>
         </div>
 
         <button
-          onClick={fetchLeaderboard}
+          type="button"
+          onClick={() => fetchLeaderboard()}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm"
+          className="flex items-center gap-2 rounded-xl border bg-card px-3.5 py-2 text-xs font-semibold shadow-subtle transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         >
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} aria-hidden />
           <span>Làm mới bảng điểm</span>
         </button>
-      </div>
+      </header>
 
-      {/* Podium Cards (Real Top Users) */}
-      {students.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-          {/* Rank 2 */}
-          {top2 ? (
-            <div className="order-2 md:order-1 flex flex-col items-center p-6 rounded-2xl border bg-card/60 relative overflow-hidden shadow-sm hover:shadow-md transition">
-              <div className="absolute top-3 right-3 text-slate-400 font-black text-3xl opacity-30">#2</div>
-              <div className="w-16 h-16 rounded-full border-4 border-slate-300 dark:border-slate-600 bg-muted flex items-center justify-center text-xl font-bold mb-3 shadow-inner relative">
-                <Medal className="w-8 h-8 text-slate-400" />
-                <span className="absolute -bottom-2 bg-slate-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  Hạng 2
-                </span>
-              </div>
-              <h3 className="font-bold text-base text-foreground text-center">{top2.name}</h3>
-              <p className="text-xs text-muted-foreground text-center mt-1 line-clamp-1">{top2.school}</p>
-              <div className="mt-4 flex items-center gap-3 text-xs font-mono">
-                <span className="text-emerald-500 font-bold">{top2.solvedCount} bài AC</span>
-                <span className="text-muted-foreground">•</span>
-                <span className="font-semibold text-primary">{top2.totalScore} pts</span>
-              </div>
-            </div>
-          ) : (
-            <div className="order-2 md:order-1 hidden md:flex items-center justify-center p-6 rounded-2xl border border-dashed text-muted-foreground text-xs text-center">
-              Đang chờ vị trí #2
-            </div>
-          )}
-
-          {/* Rank 1 - Gold (Top 1 Highlighted) */}
-          {top1 && (
-            <div className="order-1 md:order-2 flex flex-col items-center p-6 rounded-2xl border-2 border-amber-500/50 bg-amber-500/5 relative overflow-hidden shadow-lg hover:shadow-xl transition scale-105 z-10">
-              <div className="absolute top-3 right-3 text-amber-500 font-black text-3xl opacity-40">#1</div>
-              <div className="w-20 h-20 rounded-full border-4 border-amber-400 bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-2xl font-bold mb-3 shadow-md relative">
-                <Trophy className="w-10 h-10 text-amber-500" />
-                <span className="absolute -bottom-2.5 bg-amber-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full shadow">
-                  👑 Quán Quân
-                </span>
-              </div>
-              <h3 className="font-extrabold text-lg text-foreground text-center mt-1 flex items-center gap-1.5">
-                {top1.name}
-                {top1.isTeacher && <ShieldCheck className="w-4 h-4 text-amber-500 inline" />}
-              </h3>
-              <p className="text-xs text-muted-foreground text-center mt-1">{top1.school}</p>
-              <div className="mt-4 flex items-center gap-4 text-xs font-mono">
-                <span className="text-emerald-500 font-bold">{top1.solvedCount} bài AC</span>
-                <span className="text-muted-foreground">•</span>
-                <span className="font-bold text-amber-600 dark:text-amber-400 text-sm">{top1.totalScore} điểm</span>
-              </div>
-              <div className="mt-2 flex items-center gap-1 text-[11px] font-medium text-amber-600 bg-amber-500/10 px-2.5 py-0.5 rounded-full">
-                <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> {top1.totalSubmissions} lần nộp bài
-              </div>
-            </div>
-          )}
-
-          {/* Rank 3 */}
-          {top3 ? (
-            <div className="order-3 md:order-3 flex flex-col items-center p-6 rounded-2xl border bg-card/60 relative overflow-hidden shadow-sm hover:shadow-md transition">
-              <div className="absolute top-3 right-3 text-amber-700 font-black text-3xl opacity-30">#3</div>
-              <div className="w-16 h-16 rounded-full border-4 border-amber-700/60 bg-muted flex items-center justify-center text-xl font-bold mb-3 shadow-inner relative">
-                <Medal className="w-8 h-8 text-amber-700" />
-                <span className="absolute -bottom-2 bg-amber-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  Hạng 3
-                </span>
-              </div>
-              <h3 className="font-bold text-base text-foreground text-center">{top3.name}</h3>
-              <p className="text-xs text-muted-foreground text-center mt-1 line-clamp-1">{top3.school}</p>
-              <div className="mt-4 flex items-center gap-3 text-xs font-mono">
-                <span className="text-emerald-500 font-bold">{top3.solvedCount} AC</span>
-                <span className="text-muted-foreground">•</span>
-                <span className="font-semibold text-primary">{top3.totalScore} pts</span>
-              </div>
-            </div>
-          ) : (
-            <div className="order-3 md:order-3 hidden md:flex items-center justify-center p-6 rounded-2xl border border-dashed text-muted-foreground text-xs text-center">
-              Đang chờ vị trí #3
-            </div>
-          )}
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Real Table Section */}
-      <div className="p-6 rounded-2xl border bg-card/60 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h2 className="text-lg font-bold">Danh Sách Xếp Hạng ({students.length} thí sinh)</h2>
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile icon={Users} label="Thí sinh" value={totals.players} tone="text-primary" />
+        <StatTile icon={CheckCircle2} label="Lượt AC" value={totals.solved} tone="text-success" />
+        <StatTile icon={Flame} label="Lượt nộp" value={totals.submissions} tone="text-warning" />
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-52 animate-pulse rounded-2xl border bg-muted/40"
+              aria-hidden
+            />
+          ))}
+        </div>
+      ) : rows.length > 0 ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <PodiumCard user={rows[1]} place={1} isSelf={!!rows[1] && isSelf(rows[1])} />
+          <PodiumCard user={rows[0]} place={0} isSelf={!!rows[0] && isSelf(rows[0])} />
+          <PodiumCard user={rows[2]} place={2} isSelf={!!rows[2] && isSelf(rows[2])} />
+        </div>
+      ) : null}
+
+      <section className="space-y-4 rounded-2xl border bg-card/60 p-6 shadow-card">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <h2 className="text-lg font-bold">
+            Danh sách xếp hạng
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              {filtered.length}/{rows.length} thí sinh
+            </span>
+          </h2>
           <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
             <input
-              type="text"
-              placeholder="Tìm kiếm theo tên hoặc email..."
+              type="search"
+              aria-label="Tìm thí sinh theo tên, email hoặc trường"
+              placeholder="Tìm theo tên, email, trường…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 rounded-lg border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full rounded-lg border bg-background py-1.5 pl-9 pr-3 text-xs transition focus:outline-none focus:ring-2 focus:ring-ring/70"
             />
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="scrollbar-thin-muted overflow-x-auto">
           {loading ? (
-            <div className="p-8 text-center text-muted-foreground text-xs flex items-center justify-center gap-2">
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Đang tải dữ liệu xếp hạng thực tế...</span>
+            <div className="space-y-2 py-2">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="h-11 animate-pulse rounded-lg bg-muted/40" aria-hidden />
+              ))}
             </div>
-          ) : filteredStudents.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-xs">
-              Chưa có dữ liệu thí sinh nào phù hợp.
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 p-10 text-center text-xs text-muted-foreground">
+              <Trophy className="h-8 w-8 text-muted-foreground/40" aria-hidden />
+              <span>
+                {rows.length === 0
+                  ? 'Chưa có lượt nộp nào được ghi nhận. Hãy giải bài đầu tiên để mở bảng xếp hạng!'
+                  : `Không có thí sinh nào khớp với “${searchTerm.trim()}”.`}
+              </span>
             </div>
           ) : (
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-muted-foreground border-b bg-muted/20">
+              <caption className="sr-only">
+                Bảng xếp hạng thí sinh theo số bài AC và tổng điểm
+              </caption>
+              <thead className="border-b bg-muted/20 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="py-3 px-4 w-16 text-center">Hạng</th>
-                  <th className="py-3 px-4">Tài khoản thí sinh</th>
-                  <th className="py-3 px-4 hidden md:table-cell">Vai trò</th>
-                  <th className="py-3 px-4 text-center">Rank Tier</th>
-                  <th className="py-3 px-4 text-center">Bài AC (100đ)</th>
-                  <th className="py-3 px-4 text-center">Tổng lần nộp</th>
-                  <th className="py-3 px-4 text-right">Tổng điểm</th>
+                  <th scope="col" className="w-16 px-4 py-3 text-center">Hạng</th>
+                  <th scope="col" className="px-4 py-3">Thí sinh</th>
+                  <th scope="col" className="hidden px-4 py-3 md:table-cell">Vai trò</th>
+                  <th scope="col" className="px-4 py-3 text-center">Cấp bậc</th>
+                  <th scope="col" className="px-4 py-3 text-center">Bài AC</th>
+                  <th scope="col" className="px-4 py-3 text-center">Lượt nộp</th>
+                  <th scope="col" className="px-4 py-3 text-right">Tổng điểm</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50 text-xs">
-                {filteredStudents.map((s) => (
-                  <tr key={s.id} className="hover:bg-muted/30 transition">
-                    <td className="py-3.5 px-4 text-center font-bold">
-                      {s.rank === 1 ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500 text-white text-xs">1</span>
-                      ) : s.rank === 2 ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-400 text-white text-xs">2</span>
-                      ) : s.rank === 3 ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-700 text-white text-xs">3</span>
-                      ) : (
-                        <span className="text-muted-foreground font-mono">#{s.rank}</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 font-medium">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                          {s.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-foreground flex items-center gap-1">
-                            {s.name}
-                            {s.isTeacher && <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground truncate max-w-[200px]">{s.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 hidden md:table-cell">
-                      <span className={cn(
-                        'px-2 py-0.5 rounded text-[10px] font-bold border inline-flex items-center gap-1',
-                        s.isTeacher
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
-                      )}>
-                        {s.isTeacher ? <ShieldCheck className="w-2.5 h-2.5" /> : <GraduationCap className="w-2.5 h-2.5" />}
-                        {s.isTeacher ? 'Giáo viên' : 'Học sinh'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span
-                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                        style={{
-                          backgroundColor: `${s.tierColor}15`,
-                          borderColor: `${s.tierColor}40`,
-                          color: s.tierColor,
-                        }}
-                      >
-                        {s.tier}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-emerald-500">
-                      {s.solvedCount} AC
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono text-muted-foreground">
-                      {s.totalSubmissions}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-foreground text-sm">
-                      {s.totalScore}
-                    </td>
-                  </tr>
+                {filtered.map((s) => (
+                  <LeaderboardRow key={s.id} row={s} isSelf={isSelf(s)} />
                 ))}
               </tbody>
             </table>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
+
+const RANK_MEDAL: Record<number, string> = {
+  1: 'bg-warning text-background',
+  2: 'bg-muted-foreground text-background',
+  3: 'bg-info text-background',
+};
+
+function LeaderboardRow({ row, isSelf }: { row: LeaderboardUser; isSelf: boolean }) {
+  const tierColor = safeTierColor(row.tierColor);
+
+  return (
+    <tr
+      className={cn(
+        'transition-colors hover:bg-muted/30',
+        isSelf && 'bg-primary/5 hover:bg-primary/10',
+      )}
+    >
+      <td className="px-4 py-3.5 text-center font-bold">
+        {RANK_MEDAL[row.rank] ? (
+          <span
+            className={cn(
+              'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-black shadow-subtle',
+              RANK_MEDAL[row.rank],
+            )}
+          >
+            {row.rank}
+          </span>
+        ) : (
+          <span className="font-mono text-muted-foreground">#{row.rank}</span>
+        )}
+      </td>
+
+      <td className="px-4 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
+            aria-hidden
+          >
+            {row.name.charAt(0).toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 font-semibold text-foreground">
+              <span className="truncate">{row.name}</span>
+              {isSelf && (
+                <span className="shrink-0 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                  Tôi
+                </span>
+              )}
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {row.email}
+              {row.school ? ` · ${row.school}` : ''}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      <td className="hidden px-4 py-3.5 md:table-cell">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold',
+            row.isTeacher
+              ? 'border-warning/30 bg-warning/10 text-warning'
+              : 'border-info/30 bg-info/10 text-info',
+          )}
+        >
+          {row.isTeacher ? (
+            <ShieldCheck className="h-2.5 w-2.5" aria-hidden />
+          ) : (
+            <GraduationCap className="h-2.5 w-2.5" aria-hidden />
+          )}
+          {row.isTeacher ? 'Giáo viên' : 'Học sinh'}
+        </span>
+      </td>
+
+      <td className="px-4 py-3.5 text-center">
+        {/* `tierColor` là hex do API trả về — chỉ nhúng khi đúng định dạng,
+            còn lại rơi về token của theme để không vỡ giao diện Sáng/Tối. */}
+        <span
+          className={cn(
+            'rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+            !tierColor && 'border-border bg-muted/50 text-muted-foreground',
+          )}
+          style={
+            tierColor
+              ? {
+                  backgroundColor: `${tierColor}1a`,
+                  borderColor: `${tierColor}55`,
+                  color: tierColor,
+                }
+              : undefined
+          }
+        >
+          {row.tier}
+        </span>
+      </td>
+
+      <td className="px-4 py-3.5 text-center font-mono font-bold text-success">
+        {row.solvedCount}
+      </td>
+      <td className="px-4 py-3.5 text-center font-mono text-muted-foreground">
+        {row.totalSubmissions}
+      </td>
+      <td className="px-4 py-3.5 text-right font-mono text-sm font-bold text-foreground">
+        {row.totalScore}
+      </td>
+    </tr>
+  );
+}
+

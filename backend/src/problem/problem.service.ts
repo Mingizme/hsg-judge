@@ -13,6 +13,10 @@ export class ProblemService {
 
   /**
    * Lấy danh sách bài tập (có phân trang, filter độ khó/chủ đề)
+   *
+   * `includeUnpublished` chỉ dành cho Teacher Portal. Mặc định API công khai
+   * chỉ trả bài đã publish — trước đây không lọc nên bài nháp của giáo viên
+   * hiện thẳng trên trang chủ của học sinh.
    */
   async getProblems(query?: {
     difficulty?: string;
@@ -20,12 +24,17 @@ export class ProblemService {
     search?: string;
     page?: number;
     limit?: number;
+    includeUnpublished?: boolean;
   }) {
-    const page = query?.page || 1;
-    const limit = query?.limit || 20;
+    const page = Math.max(1, query?.page || 1);
+    const limit = Math.min(100, Math.max(1, query?.limit || 20));
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {};
+
+    if (!query?.includeUnpublished) {
+      where.isPublished = true;
+    }
 
     if (query?.difficulty) {
       where.difficulty = query.difficulty;
@@ -61,6 +70,11 @@ export class ProblemService {
             select: {
               testCases: true,
               submissions: true,
+              // Teacher Portal cần biết bài đã có lời giải mẫu / thang điểm
+              // subtask chưa. Trước đây frontend ghi cứng `hasSolution: true`
+              // nên bài thiếu file .cpp vẫn hiện "✓ Đã có code C++".
+              solutionCodes: true,
+              subtasks: true,
             },
           },
         },
@@ -71,25 +85,59 @@ export class ProblemService {
       this.prisma.problem.count({ where }),
     ]);
 
+    /**
+     * Tỉ lệ AC thật, đếm ở phía Postgres. Trước đây frontend hiển thị cứng
+     * `acRate: 50` cho mọi bài — một con số hoàn toàn bịa.
+     */
+    const acceptedByProblem = new Map<string, number>();
+    if (problems.length > 0) {
+      const groups = await this.prisma.submission.groupBy({
+        by: ['problemId'],
+        where: {
+          problemId: { in: problems.map((p) => p.id) },
+          verdict: 'AC',
+        },
+        _count: { _all: true },
+      });
+      groups.forEach((g) => acceptedByProblem.set(g.problemId, g._count._all));
+    }
+
     return {
-      problems: problems.map((p) => ({
-        id: p.id,
-        code: p.code,
-        title: p.title,
-        difficulty: p.difficulty,
-        ioType: p.ioType,
-        ioFileName: p.ioFileName,
-        pdfUrl: p.pdfUrl,
-        timeLimitMs: p.timeLimitMs,
-        memoryLimitMb: p.memoryLimitMb,
-        totalTests: p._count.testCases,
-        totalSubmissions: p._count.submissions,
-        maxScore: p.maxScore,
-        isPublished: p.isPublished,
-        categories: p.problemTags.map((pt) => pt.category),
-        createdBy: p.createdBy,
-        createdAt: p.createdAt,
-      })),
+      problems: problems.map((p) => {
+        const totalSubmissions = p._count.submissions;
+        const acceptedSubmissions = acceptedByProblem.get(p.id) ?? 0;
+        return {
+          id: p.id,
+          code: p.code,
+          title: p.title,
+          difficulty: p.difficulty,
+          ioType: p.ioType,
+          ioFileName: p.ioFileName,
+          pdfUrl: p.pdfUrl,
+          docxUrl: p.docxUrl,
+          hasGuide: Boolean(p.guideHtml && p.guideHtml.trim().length > 0),
+          totalSolutions: p._count.solutionCodes,
+          totalSubtasks: p._count.subtasks,
+          timeLimitMs: p.timeLimitMs,
+          memoryLimitMb: p.memoryLimitMb,
+          totalTests: p._count.testCases,
+          totalSubmissions,
+          acceptedSubmissions,
+          // `null` = chưa ai nộp → frontend hiển thị "chưa có dữ liệu"
+          acRate:
+            totalSubmissions > 0
+              ? Math.round((acceptedSubmissions / totalSubmissions) * 100)
+              : null,
+          maxScore: p.maxScore,
+          isPublished: p.isPublished,
+          // Frontend khai báo `tags` trong types/index.ts → trả cả hai tên để
+          // không phá code cũ đang đọc `categories`.
+          categories: p.problemTags.map((pt) => pt.category),
+          tags: p.problemTags.map((pt) => pt.category),
+          createdBy: p.createdBy,
+          createdAt: p.createdAt,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -232,71 +280,91 @@ export class ProblemService {
   }
 
   /**
-   * Lấy analytics của một bài tập
+   * Lấy analytics của một bài tập.
+   *
+   * Trước đây hàm này `findMany` TOÀN BỘ submission kèm `user` và `results`
+   * rồi cộng dồn trong JS — bài có vài nghìn lượt nộp là hết RAM trên Render
+   * free tier. Nay dùng aggregate/groupBy để Postgres tính, chỉ tải về 10 bản
+   * ghi gần nhất để hiển thị.
+   *
+   * `passRate` cũng được sửa: cũ so `score >= 100` cứng nên bài có maxScore
+   * khác 100 luôn ra 0%. Nay đếm theo verdict AC.
    */
   async getAnalytics(problemCode: string) {
     const problem = await this.prisma.problem.findUnique({
       where: { code: problemCode.toUpperCase() },
+      select: { id: true, maxScore: true },
     });
     if (!problem) {
       throw new NotFoundException(`Problem "${problemCode}" not found`);
     }
 
-    const submissions = await this.prisma.submission.findMany({
-      where: { problemId: problem.id },
-      include: {
-        user: true,
-        results: true,
-      },
-      orderBy: { submittedAt: 'desc' },
-    });
+    const where = { problemId: problem.id };
 
-    const totalSubmissions = submissions.length;
-    const uniqueStudents = new Set(submissions.map((s) => s.userId)).size;
+    const [aggregate, distinctUsers, verdictGroups, failureGroups, recent] =
+      await Promise.all([
+        this.prisma.submission.aggregate({
+          where,
+          _count: { _all: true },
+          _avg: { score: true },
+        }),
+        this.prisma.submission.findMany({
+          where,
+          distinct: ['userId'],
+          select: { userId: true },
+        }),
+        this.prisma.submission.groupBy({
+          by: ['verdict'],
+          where,
+          _count: { _all: true },
+        }),
+        this.prisma.submissionResult.groupBy({
+          by: ['testNumber'],
+          where: {
+            submission: where,
+            verdict: { not: 'AC' },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.submission.findMany({
+          where,
+          orderBy: { submittedAt: 'desc' },
+          take: 10,
+          select: {
+            userId: true,
+            score: true,
+            verdict: true,
+            submittedAt: true,
+            user: { select: { displayName: true } },
+          },
+        }),
+      ]);
 
-    let totalScore = 0;
-    let passedCount = 0;
-    const verdicts: Record<string, number> = {};
-    const testCaseFailuresRecord: Record<number, number> = {};
-
-    submissions.forEach((s) => {
-      totalScore += s.score || 0;
-      if ((s.score || 0) >= 100) {
-        passedCount++;
-      }
-
-      const verdict = s.verdict || 'PENDING';
-      verdicts[verdict] = (verdicts[verdict] || 0) + 1;
-
-      if (s.results) {
-        s.results.forEach((tcr) => {
-          if (tcr.verdict !== 'AC') {
-            testCaseFailuresRecord[tcr.testNumber] = (testCaseFailuresRecord[tcr.testNumber] || 0) + 1;
-          }
-        });
-      }
-    });
-
-    const testCaseFailures = Object.entries(testCaseFailuresRecord)
-      .map(([testNumber, failCount]) => ({ testNumber: Number(testNumber), failCount }))
-      .sort((a, b) => b.failCount - a.failCount);
-
-    const verdictDistribution = Object.entries(verdicts).map(([verdict, count]) => ({
-      verdict,
-      count,
-    }));
+    const totalSubmissions = aggregate._count._all;
+    const acceptedCount =
+      verdictGroups.find((g) => g.verdict === 'AC')?._count._all ?? 0;
 
     return {
       totalSubmissions,
-      totalStudents: uniqueStudents,
-      avgScore: totalSubmissions > 0 ? totalScore / totalSubmissions : 0,
-      passRate: totalSubmissions > 0 ? (passedCount / totalSubmissions) * 100 : 0,
-      testCaseFailures,
-      verdictDistribution,
-      recentSubmissions: submissions.slice(0, 10).map((s) => ({
+      totalStudents: distinctUsers.length,
+      avgScore: aggregate._avg.score ?? 0,
+      maxScore: problem.maxScore,
+      passRate:
+        totalSubmissions > 0 ? (acceptedCount / totalSubmissions) * 100 : 0,
+      testCaseFailures: failureGroups
+        .map((g) => ({
+          testNumber: g.testNumber,
+          failCount: g._count._all,
+        }))
+        .sort((a, b) => b.failCount - a.failCount),
+      verdictDistribution: verdictGroups.map((g) => ({
+        verdict: g.verdict || 'PENDING',
+        count: g._count._all,
+      })),
+      recentSubmissions: recent.map((s) => ({
         userId: s.userId,
         displayName: s.user?.displayName || 'Unknown',
-        score: s.score || 0,
+        score: s.score ?? 0,
         verdict: s.verdict || 'PENDING',
         submittedAt: s.submittedAt,
       })),

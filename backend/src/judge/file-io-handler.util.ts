@@ -39,15 +39,36 @@ export function transformFileIOToStdIO(sourceCode: string): string {
 
   let transformed = sourceCode.replace(freopenRegex, '/* freopen removed */');
 
-  // Cũng xử lý pattern ifstream/ofstream (ít phổ biến hơn)
-  // ifstream fin("file.inp");
-  // ofstream fout("file.out");
-  const ifstreamRegex =
-    /(?:ifstream|ofstream)\s+\w+\s*\(\s*"[^"]*"\s*\)\s*;/gi;
+  // ── ifstream / ofstream ───────────────────────
+  // KHÔNG được xoá dòng khai báo: code phía sau còn dùng `fin >> n`,
+  // `getline(fin, s)`, `fout << ans` → xoá đi là lỗi biên dịch ngay.
+  // Thay vào đó gắn biến thành tham chiếu tới cin/cout, vẫn đúng cú pháp C++
+  // và mọi lệnh đọc/ghi phía sau chạy y nguyên qua stdin/stdout.
+  const streamNames = new Set<string>();
+
   transformed = transformed.replace(
-    ifstreamRegex,
-    '/* fstream removed */',
+    /\b(ifstream|ofstream)\s+(\w+)\s*(?:\(\s*"[^"]*"\s*(?:,[^)]*)?\)\s*)?;/gi,
+    (_match, kind: string, name: string) => {
+      streamNames.add(name);
+      return kind.toLowerCase() === 'ifstream'
+        ? `istream& ${name} = cin;`
+        : `ostream& ${name} = cout;`;
+    },
   );
+
+  // Sau khi đã là tham chiếu cin/cout thì `.open(...)` / `.close()` không còn
+  // tồn tại trên istream&/ostream& → phải bỏ, nếu không lại lỗi biên dịch.
+  for (const name of streamNames) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    transformed = transformed.replace(
+      new RegExp(`\\b${escaped}\\s*\\.\\s*open\\s*\\([^)]*\\)\\s*;?`, 'g'),
+      '/* .open removed */',
+    );
+    transformed = transformed.replace(
+      new RegExp(`\\b${escaped}\\s*\\.\\s*close\\s*\\(\\s*\\)\\s*;?`, 'g'),
+      '/* .close removed */',
+    );
+  }
 
   return transformed;
 }
@@ -55,10 +76,16 @@ export function transformFileIOToStdIO(sourceCode: string): string {
 // ── Detection Function ────────────────────────
 
 /**
- * Kiểm tra code có dùng File I/O (freopen) không.
+ * Kiểm tra code có dùng File I/O không.
+ * Bao gồm cả freopen và ifstream/ofstream gắn trực tiếp tên file — trước đây
+ * chỉ dò freopen nên code dùng `ifstream fin("bai.inp")` không được transform
+ * và luôn bị Runtime Error trong sandbox (không có file để mở).
  */
 export function hasFileIO(sourceCode: string): boolean {
-  return /freopen\s*\(/i.test(sourceCode);
+  return (
+    /freopen\s*\(/i.test(sourceCode) ||
+    /\b(?:ifstream|ofstream)\s+\w+/i.test(sourceCode)
+  );
 }
 
 // ── Extract IO Filename ───────────────────────

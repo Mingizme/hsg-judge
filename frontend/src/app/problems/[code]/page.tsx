@@ -19,15 +19,16 @@ export async function generateMetadata({ params }: ProblemPageProps): Promise<Me
 export default async function ProblemPage({ params }: ProblemPageProps) {
   const { code } = await params;
   const upperCode = code.toUpperCase();
-  
-  // Direct public Supabase Storage URL for PDF and DOCX
-  const supabaseStorageBase = 'https://ekjqhmosasziofldicwb.supabase.co/storage/v1/object/public/problem-pdfs';
-  const pdfUrl = `${supabaseStorageBase}/problems/${upperCode}/${upperCode.toLowerCase()}.pdf`;
-  const docxUrl = `${supabaseStorageBase}/problems/${upperCode}/${upperCode.toLowerCase()}.docx`;
 
+  /**
+   * KHÔNG đoán đường dẫn Supabase Storage nữa. Ingestion lưu file theo TÊN GỐC
+   * (`problems/STRNUM/Đề bài STRNUM.pdf`), nên URL đoán kiểu `strnum.pdf` luôn
+   * trả 404 và trình xem PDF hiện ra một trang lỗi. `WorkspaceLayout` lấy
+   * `pdfUrl` / `docxUrl` thật từ `GET /api/problems/:code`.
+   */
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
-      <WorkspaceLayout problemCode={upperCode} pdfUrl={pdfUrl} docxUrl={docxUrl} />
+      <WorkspaceLayout problemCode={upperCode} />
     </div>
   );
 }

@@ -3,15 +3,26 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSSE } from './use-sse';
 import { useAuth } from '@/contexts/auth-context';
+import { API_BASE } from '@/lib/api-config';
 
 export interface TestResult {
   testNumber: number;
-  verdict: 'AC' | 'WA' | 'TLE' | 'MLE' | 'RTE' | 'CE' | 'PENDING';
+  verdict: 'AC' | 'WA' | 'TLE' | 'MLE' | 'RTE' | 'CE' | 'SE' | 'PENDING';
   executionTimeMs?: number;
   memoryUsageKb?: number;
   errorMessage?: string | null;
   diff?: any;
 }
+
+/** Thứ tự ưu tiên khi báo verdict tổng: lỗi nghiêm trọng hiện trước */
+const VERDICT_PRIORITY: TestResult['verdict'][] = [
+  'CE',
+  'SE',
+  'RTE',
+  'MLE',
+  'TLE',
+  'WA',
+];
 
 export function useSubmission() {
   const { user } = useAuth();
@@ -25,12 +36,14 @@ export function useSubmission() {
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [results, setResults] = useState<TestResult[]>([]);
   const [verdict, setVerdict] = useState<string | null>(null);
-  const [score, setScore] = useState<number>(0);
+  const [score, setScore] = useState<number | null>(null);
   const [maxScore, setMaxScore] = useState<number>(100);
   const [totalTests, setTotalTests] = useState<number>(0);
   const [passedTests, setPassedTests] = useState<number>(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { events, isConnected, isComplete, latestResult } = useSSE(submissionId);
+  const { events, isConnected, isComplete, latestResult, usedFallback } =
+    useSSE(submissionId);
 
   useEffect(() => {
     if (events.length > 0) {
@@ -48,16 +61,31 @@ export function useSubmission() {
         });
       }
 
+      // Tổng số test được server công bố ngay ở event `compile`
+      const compileEvent = events.find((e) => e.type === 'compile');
+      if (typeof compileEvent?.data?.totalTests === 'number') {
+        setTotalTests(compileEvent.data.totalTests);
+      }
+
+      const errorEvent = events.find((e) => e.type === 'error');
+      if (errorEvent) {
+        setErrorMessage(
+          errorEvent.data?.message || 'Lỗi hệ thống trong quá trình chấm bài',
+        );
+        setIsSubmitting(false);
+      }
+
       // Handle final compilation / complete event
       const completeEvent = events.find((e) => e.type === 'complete');
       if (completeEvent) {
-        const finalVerdict = completeEvent.data.verdict as string;
-        const finalScore = (completeEvent.data.score as number) ?? 0;
-        setVerdict(finalVerdict);
-        setScore(finalScore);
-        setMaxScore((completeEvent.data.maxScore as number) || 100);
-        setTotalTests((completeEvent.data.totalTests as number) || 0);
-        setPassedTests((completeEvent.data.passedTests as number) || 0);
+        const d = completeEvent.data ?? {};
+        setVerdict((d.verdict as string) ?? null);
+        setScore(typeof d.score === 'number' ? d.score : 0);
+        if (typeof d.maxScore === 'number' && d.maxScore > 0) {
+          setMaxScore(d.maxScore);
+        }
+        if (typeof d.totalTests === 'number') setTotalTests(d.totalTests);
+        if (typeof d.passedTests === 'number') setPassedTests(d.passedTests);
         setIsSubmitting(false);
 
         if (typeof window !== 'undefined') {
@@ -73,40 +101,61 @@ export function useSubmission() {
     }
   }, [events, isComplete]);
 
-  // Fallback: Tự động tính toán verdict & điểm số nếu SSE complete event bị trễ hoặc mất kết nối
+  // ── Dự phòng khi event `complete` bị trễ hoặc mất kết nối ──
+
+  const settled = !isSubmitting || isComplete;
+
   const effectiveVerdict = useMemo(() => {
     if (verdict) return verdict;
-    if (results.length > 0 && (!isSubmitting || isComplete)) {
-      if (results.every((r) => r.verdict === 'AC')) return 'AC';
-      const failed = results.find((r) => r.verdict !== 'AC');
-      return failed?.verdict || 'WA';
-    }
-    return null;
-  }, [verdict, results, isSubmitting, isComplete]);
+    if (results.length === 0 || !settled) return null;
 
-  const effectiveScore = useMemo(() => {
-    if (score > 0) return score;
-    if (results.length > 0 && (!isSubmitting || isComplete)) {
-      const passed = results.filter((r) => r.verdict === 'AC').length;
-      return Math.round((passed / results.length) * 100);
+    // Ưu tiên lỗi nặng nhất, giống thứ tự server dùng khi chốt verdict
+    for (const v of VERDICT_PRIORITY) {
+      if (results.some((r) => r.verdict === v)) return v;
     }
-    return 0;
-  }, [score, results, isSubmitting, isComplete]);
+    return results.every((r) => r.verdict === 'AC') ? 'AC' : 'WA';
+  }, [verdict, results, settled]);
+
+  /**
+   * Điểm ước lượng khi chưa có event `complete`.
+   *
+   * Trước đây chia cho `results.length` (số test ĐÃ nhận) và luôn nhân 100 →
+   * đang chấm test 3/30 mà pass cả 3 thì hiện "100đ". Nay chia cho tổng số test
+   * thật và quy theo `maxScore` của bài. Vẫn chỉ là ước lượng tuyến tính: điểm
+   * chính thức (có trọng số subtask) do server trả trong `complete`.
+   */
+  const effectiveScore = useMemo(() => {
+    if (score !== null) return score;
+    if (results.length === 0 || !settled) return 0;
+
+    const denominator = totalTests > 0 ? totalTests : results.length;
+    const passed = results.filter((r) => r.verdict === 'AC').length;
+    return Math.round((passed / denominator) * maxScore * 100) / 100;
+  }, [score, results, settled, totalTests, maxScore]);
+
+  const effectivePassedTests = useMemo(
+    () =>
+      passedTests > 0
+        ? passedTests
+        : results.filter((r) => r.verdict === 'AC').length,
+    [passedTests, results],
+  );
 
   const submitCode = useCallback(async (code: string, problemCode: string) => {
     setIsSubmitting(true);
     setSubmissionId(null);
     setResults([]);
     setVerdict(null);
-    setScore(0);
+    setScore(null);
+    setPassedTests(0);
+    setTotalTests(0);
+    setErrorMessage(null);
 
     try {
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
       const currentUser = userRef.current;
       const targetUserId = currentUser?.id || currentUser?.email || undefined;
 
-      const response = await fetch(`${apiUrl}/submissions/submit`, {
+      const response = await fetch(`${API_BASE}/submissions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -127,6 +176,11 @@ export function useSubmission() {
       }
     } catch (error) {
       console.error('Submit error:', error);
+      setErrorMessage(
+        error instanceof Error
+          ? `Không gửi được bài: ${error.message}`
+          : 'Không gửi được bài lên máy chấm.',
+      );
       setIsSubmitting(false);
     }
   }, []);
@@ -134,9 +188,7 @@ export function useSubmission() {
   const runCustom = useCallback(async (code: string, input: string, problemCode: string = 'STRNUM') => {
     setIsRunning(true);
     try {
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
-      const response = await fetch(`${apiUrl}/submissions/run`, {
+      const response = await fetch(`${API_BASE}/submissions/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +216,10 @@ export function useSubmission() {
     setSubmissionId(null);
     setResults([]);
     setVerdict(null);
-    setScore(0);
+    setScore(null);
+    setPassedTests(0);
+    setTotalTests(0);
+    setErrorMessage(null);
     setIsSubmitting(false);
     setIsRunning(false);
   }, []);
@@ -178,9 +233,11 @@ export function useSubmission() {
     score: effectiveScore,
     maxScore,
     totalTests,
-    passedTests,
+    passedTests: effectivePassedTests,
+    errorMessage,
     isConnected,
     isComplete,
+    usedFallback,
     latestResult,
     submitCode,
     runCustom,

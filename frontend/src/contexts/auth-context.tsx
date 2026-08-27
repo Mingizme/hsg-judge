@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api-config';
 import { User } from '@supabase/supabase-js';
 
 export type UserRole = 'TEACHER' | 'STUDENT';
@@ -50,22 +51,42 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
 });
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'https://hsg-judge.onrender.com/api';
+const API_URL = API_BASE;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  /**
+   * Tài khoản đã đồng bộ xong. Trước đây `login()` gọi đồng bộ, rồi
+   * `onAuthStateChange` bắn tiếp sự kiện SIGNED_IN gọi lần thứ hai — và mỗi lần
+   * Supabase làm mới token (TOKEN_REFRESHED, khoảng 1 giờ/lần) lại gọi thêm một
+   * lần nữa. Ref này chặn các lần gọi trùng.
+   */
+  const syncedIdRef = useRef<string | null>(null);
+
+  interface SyncOptions {
+    desiredRole?: UserRole;
+    secretCode?: string;
+    /** Bỏ qua bộ chặn trùng (dùng cho refreshProfile / đăng ký) */
+    force?: boolean;
+  }
+
   // Sync profile with backend
-  const fetchOrSyncProfile = useCallback(async (supabaseUser: User, desiredRole?: UserRole, secretCode?: string) => {
+  const fetchOrSyncProfile = useCallback(async (supabaseUser: User, options?: SyncOptions) => {
+    const { desiredRole, secretCode, force } = options || {};
+    if (!force && syncedIdRef.current === supabaseUser.id) return;
+    syncedIdRef.current = supabaseUser.id;
+
     try {
       // 1. First attempt to get profile from backend
       const res = await fetch(`${API_URL}/auth/me/${supabaseUser.id}`);
       if (res.ok) {
         const data = await res.json();
-        setProfile(data.data);
+        const p = data.data || data;
+        // Backend không luôn trả `isTeacher` → suy ra từ `role` cho chắc
+        setProfile({ ...p, isTeacher: p.role === 'TEACHER' });
         return;
       }
 
@@ -88,9 +109,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...syncData.data,
           isTeacher: syncData.data.role === 'TEACHER',
         });
+      } else {
+        // Đồng bộ thất bại → cho phép thử lại ở lần đăng nhập / refresh sau
+        syncedIdRef.current = null;
       }
     } catch (err) {
       console.warn('Backend profile sync notice:', err);
+      // Máy chủ miễn phí có thể đang khởi động lại → lần sau phải thử lại
+      syncedIdRef.current = null;
       // Fallback local mock profile if backend is starting up
       const isTeacherRole = (desiredRole || supabaseUser.user_metadata?.role) === 'TEACHER';
       setProfile({
@@ -136,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, pass: string) => {
     setIsLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass,
     });
@@ -146,9 +172,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: error.message };
     }
 
-    if (data.user) {
-      await fetchOrSyncProfile(data.user);
-    }
+    /**
+     * KHÔNG gọi fetchOrSyncProfile ở đây: `onAuthStateChange` bên trên đã nhận
+     * sự kiện SIGNED_IN và tự đồng bộ. Gọi thêm chỉ tạo request trùng.
+     */
     setIsLoading(false);
     return { error: null };
   };
@@ -178,7 +205,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (data.user) {
-      await fetchOrSyncProfile(data.user, role, secretCode);
+      // Đăng ký PHẢI gọi trực tiếp: chỉ ở đây mới có role mong muốn và mã bí mật
+      // của giáo viên để gửi sang backend.
+      await fetchOrSyncProfile(data.user, { desiredRole: role, secretCode, force: true });
     }
     setIsLoading(false);
     return { error: null };
@@ -186,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await supabase.auth.signOut();
+    syncedIdRef.current = null;
     setUser(null);
     setProfile(null);
   };
@@ -219,7 +249,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchOrSyncProfile(user);
+      // `force` để vượt qua bộ chặn trùng — đây là lần làm mới CÓ CHỦ Ý
+      await fetchOrSyncProfile(user, { force: true });
     }
   };
 

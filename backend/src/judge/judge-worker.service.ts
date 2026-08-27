@@ -106,11 +106,16 @@ export class JudgeWorkerService {
     return this.evaluateResult(execResult, testCase, config);
   }
 
-  // ── Judge All Test Cases (Sequential) ───────
+  // ── Judge All Test Cases ────────────────────
 
   /**
-   * Chấm code trên toàn bộ test cases, tuần tự.
+   * Chấm code trên toàn bộ test cases.
    * Trả về kết quả từng test qua callback (cho SSE streaming).
+   *
+   * Tối ưu quan trọng: KHÔNG gọi `compileCheck` riêng nữa. Trước đây mỗi lần
+   * nộp bài tốn thêm một lượt biên dịch + chạy với stdin rỗng chỉ để phát hiện
+   * CE — vừa chậm vừa hao quota API miễn phí. Nay test đầu tiên đóng luôn vai
+   * "phép thử biên dịch": nếu nó trả về CE thì toàn bộ test còn lại là CE.
    *
    * @param sourceCode - Code C++ của học sinh
    * @param testCases - Danh sách test cases
@@ -123,17 +128,23 @@ export class JudgeWorkerService {
     config: JudgeConfig,
     onTestResult?: (result: JudgeTestResult) => void,
   ): Promise<JudgeTestResult[]> {
+    if (testCases.length === 0) return [];
+
+    const ordered = [...testCases].sort((a, b) => a.testNumber - b.testNumber);
     const results: JudgeTestResult[] = [];
 
-    // ── Compile check trước ───────────────────
+    // ── Test đầu tiên: kiêm luôn compile check ──
 
-    const compileCheck = await this.compileCheck(sourceCode, config);
+    const [firstTest, ...remaining] = ordered;
+    const firstResult = await this.judgeTestCaseSafe(
+      sourceCode,
+      firstTest,
+      config,
+    );
 
-    if (!compileCheck.success) {
-      // CE → tất cả test đều CE
-      this.logger.warn(`   ❌ Compilation Error`);
-
-      for (const tc of testCases) {
+    if (firstResult.verdict === Verdict.CE) {
+      this.logger.warn('   ❌ Compilation Error');
+      for (const tc of ordered) {
         const ceResult: JudgeTestResult = {
           testCaseId: tc.testCaseId,
           testNumber: tc.testNumber,
@@ -141,61 +152,97 @@ export class JudgeWorkerService {
           executionTimeMs: 0,
           memoryUsageKb: null,
           actualOutput: '',
-          errorMessage: compileCheck.error,
+          errorMessage: firstResult.errorMessage,
           diff: null,
         };
         results.push(ceResult);
         onTestResult?.(ceResult);
       }
-
       return results;
     }
 
-    this.logger.log(`   ✅ Compilation OK`);
+    this.logger.log('   ✅ Compilation OK');
+    results.push(firstResult);
+    onTestResult?.(firstResult);
+    this.logTestResult(firstResult);
 
-    // ── Chạy các test cases đồng thời (Concurrency = 3) để tăng tốc độ chấm ──
-    const concurrency = 3;
-    const queue = [...testCases];
+    if (remaining.length === 0) return results;
+
+    // ── Các test còn lại: chạy đồng thời ────────
+    // PistonService đã tự giãn nhịp request (rate limiter) + retry 429/5xx,
+    // nên concurrency ở đây chỉ quyết định độ sâu pipeline, không gây spam API.
+    const configuredConcurrency = parseInt(
+      process.env.JUDGE_CONCURRENCY || '',
+      10,
+    );
+    const concurrency = Number.isFinite(configuredConcurrency)
+      ? Math.min(8, Math.max(1, configuredConcurrency))
+      : 3;
+
+    const queue = [...remaining];
 
     const worker = async () => {
-      while (queue.length > 0) {
+      for (;;) {
         const tc = queue.shift();
         if (!tc) break;
 
-        this.logger.log(`   🧪 Judging Test ${String(tc.testNumber).padStart(2, '0')}...`);
-        try {
-          const result = await this.judgeTestCase(sourceCode, tc, config);
-          results.push(result);
-          onTestResult?.(result);
-
-          const icon = result.verdict === Verdict.AC ? '✅' : '❌';
-          this.logger.log(
-            `   ${icon} Test ${String(tc.testNumber).padStart(2, '0')}: ${result.verdict} (${result.executionTimeMs}ms)`,
-          );
-        } catch (tcErr) {
-          this.logger.error(`   ❌ Error on Test ${tc.testNumber}: ${tcErr}`);
-          const failResult: JudgeTestResult = {
-            testCaseId: tc.testCaseId,
-            testNumber: tc.testNumber,
-            verdict: Verdict.RTE,
-            executionTimeMs: 0,
-            memoryUsageKb: null,
-            actualOutput: '',
-            errorMessage: 'Lỗi thực thi test case',
-            diff: null,
-          };
-          results.push(failResult);
-          onTestResult?.(failResult);
-        }
+        const result = await this.judgeTestCaseSafe(sourceCode, tc, config);
+        results.push(result);
+        onTestResult?.(result);
+        this.logTestResult(result);
       }
     };
 
     await Promise.all(
-      Array.from({ length: Math.min(concurrency, testCases.length) }, () => worker()),
+      Array.from({ length: Math.min(concurrency, remaining.length) }, () =>
+        worker(),
+      ),
     );
 
     results.sort((a, b) => a.testNumber - b.testNumber);
     return results;
+  }
+
+  /**
+   * `judgeTestCase` có bọc try/catch. Ngoại lệ ở đây luôn là sự cố hạ tầng
+   * (mạng, quota, JSON lỗi) nên phải báo SE — trước đây báo RTE khiến học sinh
+   * tưởng code mình sai trong khi thực tế là judge server hỏng.
+   */
+  private async judgeTestCaseSafe(
+    sourceCode: string,
+    testCase: TestCaseInput,
+    config: JudgeConfig,
+  ): Promise<JudgeTestResult> {
+    try {
+      return await this.judgeTestCase(sourceCode, testCase, config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `   ⚠️  Lỗi hệ thống ở Test ${testCase.testNumber}: ${message}`,
+      );
+      return {
+        testCaseId: testCase.testCaseId,
+        testNumber: testCase.testNumber,
+        verdict: Verdict.SE,
+        executionTimeMs: 0,
+        memoryUsageKb: null,
+        actualOutput: '',
+        errorMessage: `Lỗi hệ thống chấm bài: ${message.slice(0, 500)}`,
+        diff: null,
+      };
+    }
+  }
+
+  private logTestResult(result: JudgeTestResult): void {
+    const icon =
+      result.verdict === Verdict.AC
+        ? '✅'
+        : result.verdict === Verdict.SE
+          ? '⚠️'
+          : '❌';
+    this.logger.log(
+      `   ${icon} Test ${String(result.testNumber).padStart(2, '0')}: ${result.verdict} (${result.executionTimeMs}ms)`,
+    );
   }
 
   // ── Private: Evaluate Execution Result ──────
@@ -220,6 +267,21 @@ export class JudgeWorkerService {
         verdict: Verdict.CE,
         actualOutput: '',
         errorMessage: execResult.compilationError,
+        diff: null,
+      };
+    }
+
+    // ── Lỗi hạ tầng chấm bài (quota / mạng / 5xx) ──
+    // Phải xét TRƯỚC mọi verdict về code, nếu không học sinh bị báo RTE oan.
+
+    if (execResult.systemError) {
+      return {
+        ...baseResult,
+        verdict: Verdict.SE,
+        actualOutput: '',
+        errorMessage:
+          execResult.stderr?.slice(0, 1000) ||
+          'Máy chấm tạm thời không phản hồi. Hãy thử nộp lại sau ít phút.',
         diff: null,
       };
     }

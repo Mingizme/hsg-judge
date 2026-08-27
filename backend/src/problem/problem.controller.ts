@@ -12,6 +12,9 @@ export class ProblemController {
 
   /**
    * GET /api/problems
+   *
+   * `includeUnpublished=true` dành cho Teacher Portal (xem cả bài nháp).
+   * Mặc định chỉ trả bài đã publish.
    */
   @Get()
   async getProblems(
@@ -20,13 +23,15 @@ export class ProblemController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('includeUnpublished') includeUnpublished?: string,
   ) {
     return this.problemService.getProblems({
       difficulty,
       category,
       search,
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
+      page: Math.max(1, parseInt(page || '1', 10) || 1),
+      limit: Math.min(100, Math.max(1, parseInt(limit || '20', 10) || 20)),
+      includeUnpublished: includeUnpublished === 'true',
     });
   }
 
@@ -86,21 +91,32 @@ export class ProblemController {
 
   /**
    * GET /api/problems/:code/pdf
-   * Chuyển hướng trực tiếp tới file PDF trên Supabase Storage
+   * Chuyển hướng tới file PDF thật trên Supabase Storage.
+   *
+   * KHÔNG đoán đường dẫn nữa: ingestion lưu file theo TÊN GỐC
+   * (`problems/STRNUM/Đề bài STRNUM.pdf`), nên URL đoán kiểu `strnum.pdf` luôn
+   * 404 — client nhận về một trang lỗi XML của Supabase và tưởng PDF hỏng.
    */
   @Get(':code/pdf')
   async getProblemPdf(@Param('code') code: string, @Res() res: any) {
+    let pdfUrl: string | null = null;
     try {
       const problem = await this.problemService.getProblemByCode(code);
-      if (problem.pdfUrl) {
-        return res.redirect(problem.pdfUrl);
-      }
+      pdfUrl = problem.pdfUrl ?? null;
     } catch {
-      // Fallback below
+      return res.status(404).json({
+        statusCode: 404,
+        message: `Không tìm thấy bài tập "${code.toUpperCase()}"`,
+      });
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL || 'https://ekjqhmosasziofldicwb.supabase.co';
-    const directPdfUrl = `${supabaseUrl}/storage/v1/object/public/problem-pdfs/problems/${code.toUpperCase()}/${code.toLowerCase()}.pdf`;
-    return res.redirect(directPdfUrl);
+    if (!pdfUrl) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: `Bài "${code.toUpperCase()}" chưa có file đề PDF. Hãy nạp lại gói đề (thư mục Doc/*.pdf).`,
+      });
+    }
+
+    return res.redirect(pdfUrl);
   }
 }

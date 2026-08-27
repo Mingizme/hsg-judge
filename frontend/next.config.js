@@ -1,14 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@react-pdf-viewer/core', '@react-pdf-viewer/default-layout'],
+  // `@react-pdf-viewer/*` và `pdfjs-dist` đã được bỏ: trình xem đề bài dùng
+  // engine PDF có sẵn của trình duyệt (`components/workspace/pdf-viewer.tsx`),
+  // nên không cần transpile hay alias `canvas` cho pdf.js nữa.
   turbopack: {},
-  webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      canvas: false,
-    };
-    return config;
-  },
 };
 
 module.exports = nextConfig;

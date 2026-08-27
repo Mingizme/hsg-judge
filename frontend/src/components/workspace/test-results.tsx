@@ -1,8 +1,19 @@
 'use client';
 
 import * as React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, XCircle, Clock, AlertTriangle, Ban, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
+  AlertTriangle,
+  Ban,
+  Loader2,
+  ServerCrash,
+  Database,
+  Gauge,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TestResult } from '@/hooks/use-submission';
 
@@ -10,96 +21,285 @@ interface TestResultsProps {
   results: TestResult[];
   verdict: string | null;
   score: number;
+  maxScore?: number;
   isSubmitting: boolean;
   totalTestsExpected?: number;
+  errorMessage?: string | null;
+  /** true khi kết quả lấy từ database do mất kết nối realtime */
+  usedFallback?: boolean;
 }
 
-const getVerdictConfig = (verdict: string) => {
-  switch (verdict) {
-    case 'AC': return { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10', border: 'border-emerald-200 dark:border-emerald-500/20', label: 'Accepted' };
-    case 'WA': return { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-500/10', border: 'border-red-200 dark:border-red-500/20', label: 'Wrong Answer' };
-    case 'TLE': return { icon: Clock, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-500/10', border: 'border-orange-200 dark:border-orange-500/20', label: 'Time Limit Exceeded' };
-    case 'RTE': return { icon: AlertTriangle, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-500/10', border: 'border-purple-200 dark:border-purple-500/20', label: 'Runtime Error' };
-    case 'CE': return { icon: Ban, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-500/10', border: 'border-slate-200 dark:border-slate-500/20', label: 'Compile Error' };
-    default: return { icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-200 dark:border-blue-500/20', label: 'Pending', spin: true };
-  }
+interface VerdictConfig {
+  icon: LucideIcon;
+  color: string;
+  bg: string;
+  border: string;
+  label: string;
+  spin?: boolean;
+}
+
+const VERDICT_CONFIG: Record<string, VerdictConfig> = {
+  AC: {
+    icon: CheckCircle2,
+    color: 'text-success',
+    bg: 'bg-success/10',
+    border: 'border-success/25',
+    label: 'Accepted',
+  },
+  WA: {
+    icon: XCircle,
+    color: 'text-destructive',
+    bg: 'bg-destructive/10',
+    border: 'border-destructive/25',
+    label: 'Wrong Answer',
+  },
+  TLE: {
+    icon: Clock,
+    color: 'text-warning',
+    bg: 'bg-warning/10',
+    border: 'border-warning/25',
+    label: 'Time Limit Exceeded',
+  },
+  MLE: {
+    icon: Database,
+    color: 'text-warning',
+    bg: 'bg-warning/10',
+    border: 'border-warning/25',
+    label: 'Memory Limit Exceeded',
+  },
+  RTE: {
+    icon: AlertTriangle,
+    color: 'text-[hsl(280_70%_60%)]',
+    bg: 'bg-[hsl(280_70%_60%/0.1)]',
+    border: 'border-[hsl(280_70%_60%/0.25)]',
+    label: 'Runtime Error',
+  },
+  CE: {
+    icon: Ban,
+    color: 'text-muted-foreground',
+    bg: 'bg-muted/60',
+    border: 'border-border',
+    label: 'Compile Error',
+  },
+  SE: {
+    icon: ServerCrash,
+    color: 'text-warning',
+    bg: 'bg-warning/10',
+    border: 'border-warning/25',
+    label: 'Lỗi hệ thống chấm',
+  },
 };
 
-export function TestResults({ results, verdict, score, isSubmitting, totalTestsExpected }: TestResultsProps) {
-  if (results.length === 0 && !isSubmitting && !verdict) {
+const PENDING_CONFIG: VerdictConfig = {
+  icon: Loader2,
+  color: 'text-info',
+  bg: 'bg-info/10',
+  border: 'border-info/25',
+  label: 'Đang chờ',
+  spin: true,
+};
+
+const getVerdictConfig = (verdict: string): VerdictConfig =>
+  VERDICT_CONFIG[verdict] ?? PENDING_CONFIG;
+
+export function TestResults({
+  results,
+  verdict,
+  score,
+  maxScore = 100,
+  isSubmitting,
+  totalTestsExpected,
+  errorMessage,
+  usedFallback,
+}: TestResultsProps) {
+  if (results.length === 0 && !isSubmitting && !verdict && !errorMessage) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        Chưa có kết quả chấm. Nhấn "Nộp bài" để chấm điểm code của bạn.
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+        <Gauge className="h-8 w-8 text-muted-foreground/40" aria-hidden />
+        <p className="text-sm text-muted-foreground">
+          Chưa có kết quả chấm. Nhấn{' '}
+          <span className="font-medium text-foreground">Nộp bài</span> để chấm
+          điểm code của bạn.
+        </p>
       </div>
     );
   }
 
-  const passedTests = results.filter(r => r.verdict === 'AC').length;
-  const totalTests = totalTestsExpected || results.length || 1; // avoid / 0
-  const maxTime = results.reduce((max, r) => Math.max(max, r.executionTimeMs ?? (r as any).timeMs ?? 0), 0);
+  const passedTests = results.filter((r) => r.verdict === 'AC').length;
+  const receivedTests = results.length;
+  const totalTests = Math.max(totalTestsExpected || 0, receivedTests);
+  const maxTime = results.reduce(
+    (max, r) => Math.max(max, r.executionTimeMs ?? 0),
+    0,
+  );
+
+  // Ô giữ chỗ cho các test chưa nhận kết quả → thanh tiến trình không "nhảy"
+  const pendingSlots =
+    isSubmitting && totalTests > receivedTests ? totalTests - receivedTests : 0;
+  const progressPct =
+    totalTests > 0 ? Math.round((receivedTests / totalTests) * 100) : 0;
+
+  const activeConfig = verdict ? getVerdictConfig(verdict) : null;
 
   return (
-    <div className="flex flex-col h-full p-4 gap-4">
-      <div className="flex flex-wrap items-center justify-between rounded-lg border bg-card p-4 shadow-sm gap-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-muted-foreground">Trạng thái</span>
-          {verdict ? (
-            <span className={cn("text-lg font-bold", getVerdictConfig(verdict).color)}>
-              {getVerdictConfig(verdict).label}
+    <div className="flex h-full flex-col gap-4 p-4">
+      {/* ── Thẻ tổng kết ─────────────────────── */}
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Trạng thái
             </span>
-          ) : (
-            <div className="flex items-center text-lg font-bold text-blue-500 gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Đang chấm...
-            </div>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-muted-foreground">Điểm số</span>
-            <span className="text-lg font-bold font-mono">{score}/100</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-muted-foreground">Test qua</span>
-            <span className="text-lg font-bold font-mono">{passedTests}/{totalTests}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-muted-foreground">Max Time</span>
-            <span className="text-lg font-bold font-mono">{maxTime}ms</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        <AnimatePresence>
-          {results.map((result) => {
-            const config = getVerdictConfig(result.verdict);
-            const Icon = config.icon;
-            
-            return (
-              <motion.div
-                key={result.testNumber}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
+            {activeConfig ? (
+              <span
                 className={cn(
-                  "flex flex-col items-center justify-center p-3 rounded-lg border shadow-sm transition-colors",
-                  config.bg, config.border
+                  'flex items-center gap-2 text-lg font-bold',
+                  activeConfig.color,
                 )}
               >
-                <span className="text-xs font-semibold mb-2 text-muted-foreground">Test {result.testNumber}</span>
-                <Icon className={cn("h-6 w-6 mb-1", config.color, config.spin && "animate-spin")} />
-                <span className={cn("text-xs font-bold", config.color)}>{result.verdict}</span>
-                {(result.executionTimeMs !== undefined || (result as any).timeMs !== undefined) && (
-                  <span className="text-[10px] text-muted-foreground mt-1 font-mono">
-                    {result.executionTimeMs ?? (result as any).timeMs}ms
-                  </span>
-                )}
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                <activeConfig.icon className="h-5 w-5" aria-hidden />
+                {activeConfig.label}
+              </span>
+            ) : (
+              <span className="flex items-center gap-2 text-lg font-bold text-info">
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                Đang chấm…
+              </span>
+            )}
+          </div>
+
+          <dl className="flex items-center gap-6">
+            <Stat label="Điểm số">
+              {formatScore(score)}
+              <span className="text-sm text-muted-foreground">
+                /{formatScore(maxScore)}
+              </span>
+            </Stat>
+            <Stat label="Test qua">
+              {passedTests}
+              <span className="text-sm text-muted-foreground">
+                /{totalTests || '—'}
+              </span>
+            </Stat>
+            <Stat label="Thời gian lớn nhất">
+              {maxTime}
+              <span className="text-sm text-muted-foreground">ms</span>
+            </Stat>
+          </dl>
+        </div>
+
+        {isSubmitting && totalTests > 0 && (
+          <div
+            className="h-1 w-full bg-muted"
+            role="progressbar"
+            aria-valuenow={progressPct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Tiến độ chấm bài"
+          >
+            <div
+              className="h-full bg-gradient-brand transition-[width] duration-500 ease-smooth"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        )}
       </div>
+
+      {errorMessage && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground"
+        >
+          {errorMessage}
+        </p>
+      )}
+
+      {usedFallback && !errorMessage && (
+        <p className="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-muted-foreground">
+          Kết nối realtime bị ngắt — kết quả bên dưới được đọc lại từ máy chủ.
+        </p>
+      )}
+
+      {/* ── Lưới từng test ───────────────────── */}
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        {results.map((result, index) => {
+          const config = getVerdictConfig(result.verdict);
+          const Icon = config.icon;
+          const detail = result.errorMessage?.trim();
+
+          return (
+            <motion.li
+              key={result.testNumber}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: 0.24,
+                delay: Math.min(index * 0.02, 0.2),
+                ease: [0.16, 1, 0.3, 1],
+              }}
+              title={detail || `Test ${result.testNumber}: ${config.label}`}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1 rounded-xl border p-3 shadow-subtle',
+                config.bg,
+                config.border,
+              )}
+            >
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                Test {result.testNumber}
+              </span>
+              <Icon
+                className={cn('h-6 w-6', config.color, config.spin && 'animate-spin')}
+                aria-hidden
+              />
+              <span className={cn('text-xs font-bold', config.color)}>
+                {result.verdict}
+              </span>
+              {result.executionTimeMs !== undefined && (
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {result.executionTimeMs}ms
+                </span>
+              )}
+            </motion.li>
+          );
+        })}
+
+        {Array.from({ length: pendingSlots }, (_, i) => (
+          <li
+            key={`pending-${i}`}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border/70 p-3"
+          >
+            <span className="text-[11px] font-semibold text-muted-foreground/60">
+              Test {receivedTests + i + 1}
+            </span>
+            <span className="h-6 w-6 animate-pulse rounded-full bg-muted" />
+            <span className="text-xs font-medium text-muted-foreground/50">
+              …
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
+}
+
+function Stat({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="font-mono text-lg font-bold tabular-nums">{children}</dd>
+    </div>
+  );
+}
+
+/** 20 → "20", 12.5 → "12.5" (không hiện ".00" vô nghĩa cho điểm nguyên) */
+function formatScore(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }

@@ -17,7 +17,7 @@ import {
   MessageEvent,
   Header,
 } from '@nestjs/common';
-import { Observable, map, finalize, EMPTY } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { SubmissionService, SSEEvent } from './submission.service';
 import { SubmitCodeDto, RunCustomDto } from './dto/submit-code.dto';
 
@@ -94,35 +94,53 @@ export class SubmissionController {
   streamResults(
     @Param('id') submissionId: string,
   ): Observable<MessageEvent> {
-    const sseStream =
-      this.submissionService.getSSEStream(submissionId);
+    const sseStream = this.submissionService.getSSEStream(submissionId);
 
     if (!sseStream) {
-      // Submission đã chấm xong hoặc không tồn tại
-      // Trả về empty stream
+      // Stream đã bị dọn (client kết nối rất muộn / server vừa restart).
+      // Thay vì chỉ báo lỗi rồi để UI treo, đọc kết quả đã lưu trong DB và
+      // phát lại đúng một event `complete` để giao diện chốt được trạng thái.
       return new Observable<MessageEvent>((subscriber) => {
-        subscriber.next({
-          type: 'error',
-          data: JSON.stringify({
-            message:
-              'Stream not available. Submission may have already completed.',
-            submissionId,
-          }),
-        } as MessageEvent);
-        subscriber.complete();
+        this.submissionService
+          .getSubmission(submissionId)
+          .then((submission) => {
+            subscriber.next({
+              type: 'complete',
+              data: JSON.stringify({
+                submissionId: submission.submissionId,
+                verdict: submission.verdict,
+                score: submission.score ?? 0,
+                maxScore: submission.maxScore,
+                totalTests: submission.totalTests,
+                passedTests: submission.passedTests,
+                executionTimeMs: submission.executionTimeMs ?? 0,
+                replayedFromDatabase: true,
+              }),
+            } as MessageEvent);
+            subscriber.complete();
+          })
+          .catch(() => {
+            subscriber.next({
+              type: 'error',
+              data: JSON.stringify({
+                submissionId,
+                message:
+                  'Không tìm thấy phiên chấm bài này. Hãy tải lại lịch sử nộp bài.',
+              }),
+            } as MessageEvent);
+            subscriber.complete();
+          });
       });
     }
 
     return sseStream.pipe(
-      map((event: SSEEvent): MessageEvent => {
-        return {
-          type: event.type,
-          data: JSON.stringify(event.data),
-        } as MessageEvent;
-      }),
-      finalize(() => {
-        // Cleanup khi client ngắt kết nối
-      }),
+      map(
+        (event: SSEEvent): MessageEvent =>
+          ({
+            type: event.type,
+            data: JSON.stringify(event.data),
+          }) as MessageEvent,
+      ),
     );
   }
 
@@ -182,11 +200,18 @@ export class SubmissionController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    // Chặn giá trị bất thường: NaN, số âm, hoặc limit khổng lồ làm sập DB
+    const parsedPage = Math.max(1, parseInt(page || '1', 10) || 1);
+    const parsedLimit = Math.min(
+      100,
+      Math.max(1, parseInt(limit || '20', 10) || 20),
+    );
+
     const result = await this.submissionService.getSubmissionsByUser(
       userId,
       problemCode,
-      parseInt(page || '1', 10),
-      parseInt(limit || '20', 10),
+      parsedPage,
+      parsedLimit,
     );
 
     return {

@@ -2,12 +2,54 @@
 
 import * as React from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
+import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
+import {
+  FileText,
+  BookOpen,
+  Workflow,
+  Puzzle,
+  History,
+  Loader2,
+  type LucideIcon,
+} from 'lucide-react';
 import { StatementViewer } from './statement-viewer';
-import { GuideViewer } from './guide-viewer';
+import { GuideViewer, type GuideSubtask } from './guide-viewer';
 import { SubmissionHistory } from './submission-history';
-import { FlowchartViewer } from './flowchart-viewer';
-import { ScaffoldedCode } from './scaffolded-code';
+
+/** Khung chờ dùng chung cho các tab tải theo yêu cầu */
+function PaneSkeleton({ label }: { label: string }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center gap-2 text-xs text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * React Flow + engine mô phỏng nặng gần 200KB nhưng chỉ dùng ở tab ③.
+ * Tách khỏi bundle chính để mở trang bài tập nhanh hơn.
+ */
+const FlowchartViewer = dynamic(
+  () => import('./flowchart-viewer').then((m) => m.FlowchartViewer),
+  {
+    ssr: false,
+    loading: () => <PaneSkeleton label="Đang tải sơ đồ thuật toán…" />,
+  },
+);
+
+/**
+ * Bộ sinh "code khuyết" phải phân tích cả file .cpp bằng AST — nặng và chỉ
+ * cần khi học sinh mở tab ④.
+ */
+const ScaffoldedCode = dynamic(
+  () => import('./scaffolded-code').then((m) => m.ScaffoldedCode),
+  {
+    ssr: false,
+    loading: () => <PaneSkeleton label="Đang tạo code khuyết…" />,
+  },
+);
 
 interface ProblemTabsProps {
   problemCode: string;
@@ -21,9 +63,22 @@ interface ProblemTabsProps {
   docxUrl?: string;
   guideHtml?: string;
   description?: string;
-  initialCode?: string;
+  /** Thang điểm subtask thật của bài (dùng ở tab Hướng dẫn) */
+  subtasks?: GuideSubtask[];
+  /** Lời giải mẫu của giáo viên — chỉ dùng cho Sơ đồ thuật toán / Code khuyết */
+  modelSolution?: string;
   onApplyCode?: (code: string) => void;
 }
+
+type TabValue = 'pdf' | 'guide' | 'flowchart' | 'scaffold' | 'history';
+
+const TAB_META: { value: TabValue; label: string; icon: LucideIcon }[] = [
+  { value: 'pdf', label: 'Đề bài', icon: FileText },
+  { value: 'guide', label: 'Hướng dẫn', icon: BookOpen },
+  { value: 'flowchart', label: 'Sơ đồ thuật toán', icon: Workflow },
+  { value: 'scaffold', label: 'Code khuyết', icon: Puzzle },
+  { value: 'history', label: 'Lịch sử nộp', icon: History },
+];
 
 export function ProblemTabs({
   problemCode,
@@ -37,21 +92,67 @@ export function ProblemTabs({
   docxUrl,
   guideHtml,
   description,
-  initialCode,
+  subtasks,
+  modelSolution,
   onApplyCode,
 }: ProblemTabsProps) {
+  const [active, setActive] = React.useState<TabValue>('pdf');
+
+  // Lazy-mount rồi keep-alive: tab chỉ mount lần đầu khi được mở, sau đó giữ
+  // nguyên trong DOM (forceMount) để PDF viewer / React Flow / lịch sử nộp
+  // không phải khởi tạo lại mỗi lần đổi tab.
+  const [mounted, setMounted] = React.useState<Set<TabValue>>(
+    () => new Set<TabValue>(['pdf']),
+  );
+
+  const handleChange = React.useCallback((value: string) => {
+    const next = value as TabValue;
+    setActive(next);
+    setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+  }, []);
+
+  // Đổi bài tập → quay về tab Đề bài và bỏ cache các tab cũ
+  React.useEffect(() => {
+    setActive('pdf');
+    setMounted(new Set<TabValue>(['pdf']));
+  }, [problemCode]);
+
+  const renderPane = (value: TabValue, children: React.ReactNode) => {
+    if (!mounted.has(value)) return null;
+    return (
+      <TabsPrimitive.Content
+        key={value}
+        value={value}
+        forceMount
+        tabIndex={-1}
+        className="absolute inset-0 h-full w-full outline-none data-[state=inactive]:pointer-events-none data-[state=inactive]:invisible"
+      >
+        {children}
+      </TabsPrimitive.Content>
+    );
+  };
+
   return (
-    <TabsPrimitive.Root defaultValue="pdf" className="flex flex-col h-full w-full">
-      <TabsPrimitive.List className="flex w-full items-center border-b px-2 h-10 bg-muted/30 shrink-0 overflow-x-auto">
-        <TabTrigger value="pdf">Đề bài</TabTrigger>
-        <TabTrigger value="guide">Hướng dẫn</TabTrigger>
-        <TabTrigger value="flowchart">Sơ đồ thuật toán</TabTrigger>
-        <TabTrigger value="scaffold">Code khuyết</TabTrigger>
-        <TabTrigger value="history">Lịch sử nộp</TabTrigger>
+    <TabsPrimitive.Root
+      value={active}
+      onValueChange={handleChange}
+      className="flex h-full w-full flex-col"
+    >
+      <TabsPrimitive.List
+        aria-label="Khu vực học tập"
+        className="flex h-10 w-full shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-surface/60 px-1.5 backdrop-blur"
+      >
+        {TAB_META.map(({ value, label, icon: Icon }) => (
+          <TabTrigger key={value} value={value}>
+            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{label}</span>
+          </TabTrigger>
+        ))}
       </TabsPrimitive.List>
-      
-      <div className="flex-1 overflow-hidden relative">
-        <TabsPrimitive.Content value="pdf" className="h-full w-full outline-none data-[state=inactive]:hidden">
+
+      <div className="relative flex-1 overflow-hidden">
+        {renderPane(
+          'pdf',
           <StatementViewer
             problemCode={problemCode}
             title={title}
@@ -64,28 +165,37 @@ export function ProblemTabs({
             docxUrl={docxUrl}
             guideHtml={guideHtml}
             description={description}
-          />
-        </TabsPrimitive.Content>
+          />,
+        )}
 
-        <TabsPrimitive.Content value="guide" className="h-full w-full outline-none data-[state=inactive]:hidden">
+        {renderPane(
+          'guide',
           <GuideViewer
             problemCode={problemCode}
             docxUrl={docxUrl}
             guideHtml={guideHtml}
-          />
-        </TabsPrimitive.Content>
-        
-        <TabsPrimitive.Content value="flowchart" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <FlowchartViewer problemCode={problemCode} initialCode={initialCode} />
-        </TabsPrimitive.Content>
-        
-        <TabsPrimitive.Content value="scaffold" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <ScaffoldedCode problemCode={problemCode} initialCode={initialCode} onApplyCode={onApplyCode} />
-        </TabsPrimitive.Content>
-        
-        <TabsPrimitive.Content value="history" className="h-full w-full outline-none data-[state=inactive]:hidden">
-          <SubmissionHistory problemCode={problemCode} />
-        </TabsPrimitive.Content>
+            subtasks={subtasks}
+          />,
+        )}
+
+        {renderPane(
+          'flowchart',
+          <FlowchartViewer
+            problemCode={problemCode}
+            initialCode={modelSolution}
+          />,
+        )}
+
+        {renderPane(
+          'scaffold',
+          <ScaffoldedCode
+            problemCode={problemCode}
+            initialCode={modelSolution}
+            onApplyCode={onApplyCode}
+          />,
+        )}
+
+        {renderPane('history', <SubmissionHistory problemCode={problemCode} />)}
       </div>
     </TabsPrimitive.Root>
   );
@@ -98,9 +208,14 @@ const TabTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2 text-xs sm:text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-      "data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground",
-      className
+      'group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground',
+      'transition-colors duration-200 ease-smooth hover:bg-muted/60 hover:text-foreground',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
+      'disabled:pointer-events-none disabled:opacity-50 sm:text-[13px]',
+      'data-[state=active]:bg-primary/10 data-[state=active]:text-primary',
+      'data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-[5px]',
+      'data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-primary',
+      className,
     )}
     {...props}
   />

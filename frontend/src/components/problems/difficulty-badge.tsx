@@ -5,38 +5,33 @@ interface DifficultyBadgeProps {
   className?: string
 }
 
+/**
+ * Dùng token semantic (`success`/`warning`/`destructive`) thay cho bảng màu
+ * emerald/amber/rose viết cứng — nhờ đó badge tự khớp với cả chế độ Sáng và Tối
+ * của design system, không cần hai bộ class `dark:`.
+ */
+const STYLES: Record<string, string> = {
+  EASY: 'border-success/30 bg-success/10 text-success',
+  MEDIUM: 'border-warning/30 bg-warning/10 text-warning',
+  HARD: 'border-destructive/30 bg-destructive/10 text-destructive',
+}
+
+const LABELS: Record<string, string> = {
+  EASY: 'Dễ',
+  MEDIUM: 'Trung bình',
+  HARD: 'Khó',
+}
+
 export function DifficultyBadge({ difficulty, className }: DifficultyBadgeProps) {
-  const getBadgeStyle = () => {
-    switch (difficulty) {
-      case 'EASY':
-        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-      case 'MEDIUM':
-        return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-      case 'HARD':
-        return 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400'
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
-    }
-  }
-
-  const getLabel = () => {
-    switch (difficulty) {
-      case 'EASY': return 'Dễ'
-      case 'MEDIUM': return 'Trung bình'
-      case 'HARD': return 'Khó'
-      default: return difficulty
-    }
-  }
-
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-        getBadgeStyle(),
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold',
+        STYLES[difficulty] ?? 'border-border bg-muted text-muted-foreground',
         className
       )}
     >
-      {getLabel()}
+      {LABELS[difficulty] ?? difficulty}
     </span>
   )
 }

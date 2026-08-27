@@ -17,15 +17,18 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
   const [customInput, setCustomInput] = React.useState('');
   const [runOutput, setRunOutput] = React.useState<{ stdout?: string; stderr?: string; error?: string } | null>(null);
   
-  const { 
-    submitCode, 
-    runCustom, 
-    isSubmitting, 
-    isRunning, 
-    results, 
-    verdict, 
+  const {
+    submitCode,
+    runCustom,
+    isSubmitting,
+    isRunning,
+    results,
+    verdict,
     score,
+    maxScore,
     totalTests,
+    errorMessage,
+    usedFallback,
   } = useSubmission();
 
   const handleRun = async () => {
@@ -54,21 +57,31 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
           </TabTrigger>
         </TabsPrimitive.List>
 
-        <div className="flex items-center gap-2 mr-2">
+        <div className="mr-2 flex items-center gap-2">
           <button
+            type="button"
             onClick={handleRun}
             disabled={isRunning || isSubmitting}
-            className="inline-flex h-7 items-center justify-center rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-7 items-center justify-center rounded-md border bg-background px-3 text-xs font-medium transition-colors duration-200 ease-smooth hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           >
-            {isRunning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5 text-green-500" />}
+            {isRunning ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Play className="mr-1.5 h-3.5 w-3.5 text-success" aria-hidden />
+            )}
             Chạy thử
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || isRunning}
-            className="inline-flex h-7 items-center justify-center rounded-md bg-gradient-to-r from-emerald-500 to-green-600 px-3 text-xs font-medium text-white shadow transition-all hover:from-emerald-600 hover:to-green-700 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-7 items-center justify-center rounded-md bg-gradient-brand px-3 text-xs font-medium text-white shadow-subtle transition-all duration-200 ease-smooth hover:shadow-glow disabled:pointer-events-none disabled:opacity-50"
           >
-            {isSubmitting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+            {isSubmitting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            )}
             Nộp bài
           </button>
         </div>
@@ -96,8 +109,8 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
               <div className="flex-1 w-full overflow-auto p-3 text-sm font-mono">
                 {runOutput ? (
                   <>
-                    {runOutput.error && <div className="text-red-500 mb-2">{runOutput.error}</div>}
-                    {runOutput.stderr && <div className="text-red-400 mb-2 whitespace-pre-wrap">{runOutput.stderr}</div>}
+                    {runOutput.error && <div className="mb-2 text-destructive">{runOutput.error}</div>}
+                    {runOutput.stderr && <div className="mb-2 whitespace-pre-wrap text-destructive/90">{runOutput.stderr}</div>}
                     {runOutput.stdout && <div className="whitespace-pre-wrap">{runOutput.stdout}</div>}
                     {!runOutput.stdout && !runOutput.stderr && !runOutput.error && (
                       <span className="text-muted-foreground italic">Code chạy thành công nhưng không có đầu ra.</span>
@@ -112,7 +125,17 @@ export function ConsolePanel({ code, problemCode }: ConsolePanelProps) {
         </TabsPrimitive.Content>
         
         <TabsPrimitive.Content value="results" className="h-full w-full outline-none data-[state=inactive]:hidden overflow-auto">
-          <TestResults results={results} verdict={verdict} score={score} isSubmitting={isSubmitting} totalTestsExpected={totalTests} />
+          <TestResults
+            results={results}
+            verdict={verdict}
+            score={score}
+            maxScore={maxScore}
+            isSubmitting={isSubmitting}
+            totalTestsExpected={totalTests}
+            errorMessage={errorMessage}
+            usedFallback={usedFallback}
+          />
+
         </TabsPrimitive.Content>
       </div>
     </TabsPrimitive.Root>
