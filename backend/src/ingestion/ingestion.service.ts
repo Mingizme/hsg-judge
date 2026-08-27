@@ -8,7 +8,7 @@
 //   - .cpp: Luôn là Code mẫu
 // ============================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 const AdmZip = require('adm-zip');
@@ -18,10 +18,25 @@ import {
   scanDataDirectory,
   parseProblemDirectory,
   findSubdirectory,
+  looksLikeProblemDir,
+  DOC_DIR_NAMES,
+  TEST_DIR_NAMES,
   ParsedProblem,
 } from './file-parser.util';
 
 // ── Types ─────────────────────────────────────
+
+/**
+ * Số test đầu tiên được đánh dấu công khai (hiện ở tab Đề bài cho học sinh).
+ *
+ * Quy ước của bộ đề HSG: Test01/Test02 là ví dụ mẫu in trong đề. Đặt tên hằng
+ * để chỗ này không còn là con số `2` vô danh nằm giữa logic, và có thể sửa
+ * bằng biến môi trường nếu bộ đề dùng quy ước khác.
+ */
+const SAMPLE_TEST_COUNT = Math.max(
+  0,
+  parseInt(process.env.SAMPLE_TEST_COUNT || '2', 10) || 0,
+);
 
 export interface IngestionOptions {
   title?: string;
@@ -61,8 +76,72 @@ export class IngestionService {
     private readonly storage: SupabaseStorageService,
   ) {}
 
+  /** Thư mục dữ liệu chuẩn của hệ thống */
+  private get dataRoot(): string {
+    return path.resolve(
+      process.env.DATA_DIR || path.resolve(process.cwd(), '..', 'Data'),
+    );
+  }
+
   /**
-   * Trích xuất văn bản từ file PDF và định dạng thành HTML sư phạm
+   * Những gốc thư mục mà API được phép đọc.
+   *
+   * `POST /ingestion/ingest-single` nhận thẳng đường dẫn từ thân yêu cầu, nên
+   * không có kiểm tra này thì bất kỳ ai cũng gọi được với `C:\Users\...` để buộc
+   * máy chủ đọc tài liệu ở nơi khác rồi ghi vào cơ sở dữ liệu. Chỉ cho phép khu
+   * vực dữ liệu của dự án, thư mục tạm khi giải nén ZIP, và các gốc khai báo
+   * thêm qua biến môi trường `INGEST_ALLOWED_ROOTS`.
+   */
+  private get allowedRoots(): string[] {
+    const extra = (process.env.INGEST_ALLOWED_ROOTS || '')
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => path.resolve(s));
+
+    return [
+      this.dataRoot,
+      path.resolve(process.cwd(), 'tmp'),
+      path.resolve(process.cwd()),
+      path.resolve(process.cwd(), '..'),
+      ...extra,
+    ];
+  }
+
+  private assertAllowedDir(dir: string): string {
+    const abs = path.resolve(dir);
+    const ok = this.allowedRoots.some(
+      (root) => abs === root || abs.startsWith(root + path.sep),
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        'Đường dẫn nằm ngoài khu vực dữ liệu được phép nạp. ' +
+          'Hãy đặt thư mục trong Data/ hoặc khai báo INGEST_ALLOWED_ROOTS.',
+      );
+    }
+    return abs;
+  }
+
+  /**
+   * Thoát ký tự HTML trước khi ghép vào chuỗi thẻ.
+   *
+   * Đề Tin học đầy dấu `<`: ràng buộc `1 <= n <= 10^5` nếu ghép thẳng vào
+   * `<p>...</p>` sẽ bị trình duyệt hiểu là thẻ mở và **ăn mất** phần ràng buộc.
+   */
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Trích xuất văn bản từ file PDF và định dạng thành HTML sư phạm.
+   *
+   * Bản cũ bọc MỖI DÒNG vào một thẻ `<p>` và bỏ hết dòng trống, nên đề bài mất
+   * sạch cấu trúc đoạn, còn khối "Ví dụ" — nơi việc thẳng cột của dữ liệu vào/ra
+   * là toàn bộ ý nghĩa — bị xé thành hàng chục đoạn rời. Nay dòng trống được
+   * dùng làm ranh giới đoạn, và phần ví dụ giữ nguyên văn trong `<pre>`.
    */
   private async extractStatementFromPdf(pdfPath: string): Promise<string> {
     try {
@@ -82,26 +161,94 @@ export class IngestionService {
         .replace(/\r/g, '\n')
         .trim();
 
-      const lines = clean.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      const lines: string[] = clean.split('\n').map((l: string) => l.trimEnd());
+
+      // Tiền tố liệt kê hay gặp trong đề: `*`, `-`, `1.`, `a)`
+      const BULLET = String.raw`^[\s*\-•]*(?:\d+[.)]\s*|[a-h][.)]\s*)?`;
+      const SECTIONS: { re: RegExp; html: string; example?: boolean }[] = [
+        {
+          re: new RegExp(`${BULLET}(input|dữ liệu vào|đầu vào)\\b`, 'i'),
+          html: '<h3>📥 Quy cách Dữ liệu vào (Input)</h3>',
+        },
+        {
+          re: new RegExp(
+            `${BULLET}(output|kết quả ra|dữ liệu ra|đầu ra)\\b`,
+            'i',
+          ),
+          html: '<h3>📤 Quy cách Kết quả ra (Output)</h3>',
+        },
+        {
+          re: new RegExp(`${BULLET}(ví dụ|example|sample|test mẫu)\\b`, 'i'),
+          html: '<h3>📊 Ví dụ mẫu (Example)</h3>',
+          example: true,
+        },
+        {
+          re: new RegExp(
+            `${BULLET}(ràng buộc|giới hạn|subtask|constraints|chú ý|lưu ý)\\b`,
+            'i',
+          ),
+          html: '<h3>🎯 Giới hạn & Ràng buộc</h3>',
+        },
+      ];
 
       let html = '';
+      let para: string[] = [];
+      let pre: string[] = [];
+      let inExample = false;
+
+      const flushPara = () => {
+        if (para.length === 0) return;
+        html += `<p>${this.escapeHtml(para.join(' '))}</p>`;
+        para = [];
+      };
+      const flushPre = () => {
+        while (pre.length > 0 && !pre[0].trim()) pre.shift();
+        while (pre.length > 0 && !pre[pre.length - 1].trim()) pre.pop();
+        if (pre.length === 0) return;
+        html += `<pre class="whitespace-pre-wrap">${this.escapeHtml(
+          pre.join('\n'),
+        )}</pre>`;
+        pre = [];
+      };
+
       for (const line of lines) {
-        if (/^(\*|\d+\.|\-)\s*(input|đầu vào|dữ liệu vào)/i.test(line)) {
-          const content = line.replace(/^(\*|\d+\.|\-)\s*(input|đầu vào|dữ liệu vào)[:\s]*/i, '');
-          html += `<h3>📥 Quy cách Dữ liệu vào (Input)</h3><p>${content}</p>`;
-        } else if (/^(\*|\d+\.|\-)\s*(output|đầu ra|kết quả ra|kết quả)/i.test(line)) {
-          const content = line.replace(/^(\*|\d+\.|\-)\s*(output|đầu ra|kết quả ra|kết quả)[:\s]*/i, '');
-          html += `<h3>📤 Quy cách Kết quả ra (Output)</h3><p>${content}</p>`;
-        } else if (/^(\*|\d+\.|\-)\s*(example|ví dụ|ví dụ mẫu)/i.test(line)) {
-          html += `<h3>📊 Ví dụ mẫu (Example)</h3>`;
-        } else if (/^(\*|\d+\.|\-)\s*(ràng buộc|subtasks|giới hạn|chú ý)/i.test(line)) {
-          html += `<h3>🎯 Giới hạn & Ràng buộc</h3><p>${line}</p>`;
-        } else if (line.startsWith('-')) {
-          html += `<p class="pl-4"><strong>${line}</strong></p>`;
-        } else {
-          html += `<p>${line}</p>`;
+        // Chỉ coi là tiêu đề khi dòng ngắn như một tiêu đề thật hoặc có dấu hai
+        // chấm. Nếu không, một câu văn bình thường như "Ví dụ với n = 5 thì …"
+        // sẽ bị hiểu là mốc mở đầu phần Ví dụ và kéo cả phần còn lại vào `<pre>`.
+        const t = line.trim();
+        const headingLike = t.length <= 64 || /[:：]/.test(t.slice(0, 40));
+        const section = headingLike
+          ? SECTIONS.find((s) => s.re.test(line))
+          : undefined;
+
+        if (section) {
+          flushPara();
+          flushPre();
+          inExample = Boolean(section.example);
+          html += section.html;
+          // Phần nội dung viết ngay sau tiêu đề trên cùng một dòng
+          const rest = line.replace(section.re, '').replace(/^[:\s.-]+/, '');
+          if (rest.trim()) {
+            if (inExample) pre.push(rest);
+            else para.push(rest);
+          }
+          continue;
         }
+
+        if (inExample) {
+          pre.push(line);
+          continue;
+        }
+
+        if (!line.trim()) {
+          flushPara();
+          continue;
+        }
+        para.push(line.trim());
       }
+
+      flushPara();
+      flushPre();
 
       return html;
     } catch (err) {
@@ -120,7 +267,8 @@ export class IngestionService {
     overrideCode?: string,
     options?: IngestionOptions,
   ): Promise<IngestionResult> {
-    const parsed = parseProblemDirectory(problemDir, overrideCode);
+    const safeDir = this.assertAllowedDir(problemDir);
+    const parsed = parseProblemDirectory(safeDir, overrideCode);
 
     this.logger.log(`\n📂 Ingesting problem: ${parsed.code}`);
     this.logger.log(`   IO Type: ${parsed.ioType}`);
@@ -181,9 +329,17 @@ export class IngestionService {
         }
       }
 
-      // Nếu không có PDF mà có DOCX, dùng DOCX cho cả Đề bài nếu cần
-      const finalDescription = statementHtml || guideHtml || (options?.title ? `Bài toán ${options.title}` : `Bài toán ${parsed.code}`);
-      const finalGuideHtml = guideHtml || statementHtml;
+      // Đề bài ưu tiên PDF. Nếu gói đề KHÔNG có PDF thì đành dùng DOCX làm đề,
+      // nhưng khi đó tab Hướng dẫn phải để trống — trước đây cùng một nội dung
+      // hiện ở cả hai tab, học sinh mở "Hướng dẫn giải" lại thấy đúng đề bài.
+      const usedDocxAsStatement = !statementHtml && Boolean(guideHtml);
+      const finalDescription =
+        statementHtml ||
+        guideHtml ||
+        (options?.title
+          ? `Bài toán ${options.title}`
+          : `Bài toán ${parsed.code}`);
+      const finalGuideHtml = usedDocxAsStatement ? null : guideHtml;
 
       // ── Step 2: Upsert Problem record ───────────
 
@@ -196,12 +352,16 @@ export class IngestionService {
           ioType: parsed.ioType,
           ioFileName: parsed.ioFileName,
           description: finalDescription,
-          pdfUrl,
-          pdfStoragePath,
-          docxUrl,
-          guideHtml: finalGuideHtml,
-          isPublished: true,
-          totalTests: parsed.testCases.length,
+          // `?? undefined` là BẮT BUỘC ở nhánh update: Prisma coi `null` là
+          // "ghi NULL", còn `undefined` là "giữ nguyên". Trước đây truyền thẳng
+          // `pdfUrl` nên nạp lại một gói đề thiếu PDF — hoặc chỉ cần Supabase
+          // Storage lỗi một nhịp — là XOÁ MẤT đường dẫn đề bài đang chạy tốt.
+          pdfUrl: pdfUrl ?? undefined,
+          pdfStoragePath: pdfStoragePath ?? undefined,
+          docxUrl: docxUrl ?? undefined,
+          guideHtml: finalGuideHtml ?? undefined,
+          // KHÔNG tự publish lại khi cập nhật: giáo viên có thể đã chủ ý ẩn bài.
+          // Trạng thái phát hành do Teacher Portal quyết định, không do ingestion.
           timeLimitMs: options?.timeLimitMs || undefined,
           memoryLimitMb: options?.memoryLimitMb || undefined,
         },
@@ -263,55 +423,78 @@ export class IngestionService {
 
       this.logger.log(`   ✅ Problem record: ${problem.id}`);
 
-      // ── Step 3: Upsert TestCases ────────────────
+      // ── Step 3 & 4: Thay bộ TestCase + SolutionCode NGUYÊN TỬ ──
+      //
+      // Trước đây `deleteMany` rồi `createMany` chạy rời nhau: `createMany`
+      // fail (payload quá lớn, mất kết nối Postgres) là bài còn 0 test trong
+      // khi `totalTests` đã ghi số mới — một lần nạp lỗi mất sạch bộ test.
+      // Gói vào transaction để hoặc thay được hết, hoặc giữ nguyên dữ liệu cũ.
+      await this.prisma.$transaction(async (tx) => {
+        await tx.testCase.deleteMany({ where: { problemId: problem.id } });
 
-      await this.prisma.testCase.deleteMany({
-        where: { problemId: problem.id },
+        if (parsed.testCases.length > 0) {
+          await tx.testCase.createMany({
+            data: parsed.testCases.map((tc) => ({
+              problemId: problem.id,
+              testNumber: tc.testNumber,
+              inputData: tc.inputData,
+              outputData: tc.outputData,
+              isSample: tc.testNumber <= SAMPLE_TEST_COUNT,
+            })),
+          });
+        }
+
+        await tx.solutionCode.deleteMany({ where: { problemId: problem.id } });
+
+        if (parsed.solutionCodes.length > 0) {
+          await tx.solutionCode.createMany({
+            data: parsed.solutionCodes.map((sc) => ({
+              problemId: problem.id,
+              label: sc.label,
+              fileName: sc.fileName,
+              sourceCode: sc.sourceCode,
+              language: 'cpp',
+              isPrimary: sc.isPrimary,
+            })),
+          });
+        }
+
+        // `totalTests` chỉ cập nhật khi bộ test mới đã vào an toàn.
+        await tx.problem.update({
+          where: { id: problem.id },
+          data: { totalTests: parsed.testCases.length },
+        });
       });
 
-      if (parsed.testCases.length > 0) {
-        await this.prisma.testCase.createMany({
-          data: parsed.testCases.map((tc) => ({
-            problemId: problem.id,
-            testNumber: tc.testNumber,
-            inputData: tc.inputData,
-            outputData: tc.outputData,
-            isSample: tc.testNumber <= 2,
-          })),
-        });
+      this.logger.log(`   ✅ ${parsed.testCases.length} test case(s) inserted`);
+      this.logger.log(
+        `   ✅ ${parsed.solutionCodes.length} solution code(s) inserted`,
+      );
 
-        this.logger.log(
-          `   ✅ ${parsed.testCases.length} test cases inserted`,
+      // Nạp xong nhưng thiếu dữ liệu cốt lõi vẫn là "thành công" về mặt ghi cơ
+      // sở dữ liệu — phải nói rõ ra, nếu không giáo viên tưởng bài đã đủ trong
+      // khi không có test để chấm hay không có lời giải để sinh sơ đồ.
+      const warnings: string[] = [];
+      if (parsed.testCases.length === 0) {
+        warnings.push('KHÔNG tìm thấy test nào (bài sẽ không chấm được)');
+      }
+      if (parsed.solutionCodes.length === 0) {
+        warnings.push(
+          'KHÔNG tìm thấy lời giải mẫu .cpp (không sinh được sơ đồ & code khuyết)',
         );
       }
-
-      // ── Step 4: Upsert SolutionCodes ────────────
-
-      await this.prisma.solutionCode.deleteMany({
-        where: { problemId: problem.id },
-      });
-
-      if (parsed.solutionCodes.length > 0) {
-        await this.prisma.solutionCode.createMany({
-          data: parsed.solutionCodes.map((sc) => ({
-            problemId: problem.id,
-            label: sc.label,
-            fileName: sc.fileName,
-            sourceCode: sc.sourceCode,
-            language: 'cpp',
-            isPrimary: sc.isPrimary,
-          })),
-        });
-
-        this.logger.log(
-          `   ✅ ${parsed.solutionCodes.length} solution code(s) inserted`,
-        );
+      if (!parsed.pdfPath && !parsed.docxPath) {
+        warnings.push('KHÔNG tìm thấy tệp đề bài .pdf/.docx');
       }
+      for (const w of warnings) this.logger.warn(`   ⚠️ ${w}`);
 
       return {
         problemCode: parsed.code,
         success: true,
-        message: `Problem "${parsed.code}" ingested successfully.`,
+        message:
+          warnings.length === 0
+            ? `Problem "${parsed.code}" ingested successfully.`
+            : `Problem "${parsed.code}" ingested with warnings: ${warnings.join('; ')}`,
         details: {
           testCasesCount: parsed.testCases.length,
           solutionCodesCount: parsed.solutionCodes.length,
@@ -343,10 +526,7 @@ export class IngestionService {
   // ── Ingest All Problems in Data/ ──────────────
 
   async ingestAll(dataDir?: string): Promise<BatchIngestionResult> {
-    const resolvedDataDir =
-      dataDir ||
-      process.env.DATA_DIR ||
-      path.resolve(process.cwd(), '..', 'Data');
+    const resolvedDataDir = this.assertAllowedDir(dataDir || this.dataRoot);
 
     this.logger.log(`\n========================================`);
     this.logger.log(`🚀 Starting batch ingestion`);
@@ -392,10 +572,58 @@ export class IngestionService {
 
   // ── Ingest Uploaded ZIP File ──────────────────
 
+  /**
+   * Giải nén ZIP một cách an toàn.
+   *
+   * `zip.extractAllTo()` của adm-zip KHÔNG kiểm tra tên entry, nên một entry
+   * tên `../../src/main.ts` ghi được ra ngoài thư mục tạm (lỗ hổng Zip Slip,
+   * CVE-2018-1002204). Endpoint `upload-zip` lại chưa có xác thực, nên đây là
+   * đường ghi file tuỳ ý lên máy chủ. Ở đây tự duyệt từng entry và chỉ ghi khi
+   * đường dẫn tuyệt đối vẫn nằm trong `destDir`.
+   */
+  private extractZipSafely(zipBuffer: Buffer, destDir: string): number {
+    const zip = new AdmZip(zipBuffer);
+    const root = path.resolve(destDir);
+    let skipped = 0;
+
+    for (const entry of zip.getEntries()) {
+      const name = String(entry.entryName || '').replace(/\\/g, '/');
+
+      // Rác của macOS và tệp ẩn: không cần nạp
+      if (!name || name.startsWith('__MACOSX/') || name.startsWith('.')) {
+        continue;
+      }
+      // Chặn thẳng mọi entry có thành phần `..` hoặc đường dẫn tuyệt đối
+      if (name.split('/').includes('..') || path.isAbsolute(name)) {
+        this.logger.warn(`   ⛔ Bỏ qua entry ZIP đáng ngờ: ${name}`);
+        skipped++;
+        continue;
+      }
+
+      const target = path.resolve(root, name);
+      if (target !== root && !target.startsWith(root + path.sep)) {
+        this.logger.warn(`   ⛔ Entry ZIP thoát khỏi thư mục tạm: ${name}`);
+        skipped++;
+        continue;
+      }
+
+      if (entry.isDirectory) {
+        fs.mkdirSync(target, { recursive: true });
+        continue;
+      }
+
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, entry.getData());
+    }
+
+    return skipped;
+  }
+
   async ingestFromZip(
     zipBuffer: Buffer,
     originalFileName?: string,
     options?: IngestionOptions,
+    overrideCode?: string,
   ): Promise<IngestionResult[]> {
     const tempDir = path.join(
       process.cwd(),
@@ -405,10 +633,12 @@ export class IngestionService {
 
     try {
       fs.mkdirSync(tempDir, { recursive: true });
-      const zip = new AdmZip(zipBuffer);
-      zip.extractAllTo(tempDir, true);
+      const skipped = this.extractZipSafely(zipBuffer, tempDir);
 
-      this.logger.log(`📦 Extracted ZIP to temporary dir: ${tempDir}`);
+      this.logger.log(
+        `📦 Extracted ZIP to temporary dir: ${tempDir}` +
+          (skipped > 0 ? ` (đã bỏ ${skipped} entry không an toàn)` : ''),
+      );
 
       // Tìm tất cả các thư mục con có thể là bài tập
       let targetDirs: string[] = [];
@@ -416,17 +646,20 @@ export class IngestionService {
       const visibleEntries = entries.filter((e: any) => !e.name.startsWith('.') && !e.name.startsWith('__MACOSX'));
 
       // Kiểm tra nếu tempDir chính là 1 thư mục bài tập (chứa Doc/ hoặc Test/)
-      const hasDirectDoc = Boolean(findSubdirectory(tempDir, ['Doc', 'doc', 'docs']));
-      const hasDirectTest = Boolean(findSubdirectory(tempDir, ['Test', 'test', 'tests']));
+      const hasDirectDoc = Boolean(findSubdirectory(tempDir, DOC_DIR_NAMES));
+      const hasDirectTest = Boolean(findSubdirectory(tempDir, TEST_DIR_NAMES));
 
       if (hasDirectDoc || hasDirectTest) {
         targetDirs.push(tempDir);
       } else {
-        for (const entry of visibleEntries) {
-          if (entry.isDirectory()) {
-            targetDirs.push(path.join(tempDir, entry.name));
-          }
-        }
+        const subDirs = visibleEntries
+          .filter((e: any) => e.isDirectory())
+          .map((e: any) => path.join(tempDir, e.name));
+        // Chỉ nhận thư mục con trông giống gói bài tập; nếu không có thư mục nào
+        // đạt thì mới lấy tất cả. Trước đây mọi thư mục con đều thành một "bài",
+        // nên một gói kèm thư mục `anh/` hay `backup/` sinh ra bài rỗng rác.
+        const looksLike = subDirs.filter((d: string) => looksLikeProblemDir(d));
+        targetDirs = looksLike.length > 0 ? looksLike : subDirs;
       }
 
       if (targetDirs.length === 0) {
@@ -434,11 +667,19 @@ export class IngestionService {
       }
 
       const results: IngestionResult[] = [];
+      const singleTarget = targetDirs.length === 1;
+
       for (const dir of targetDirs) {
         let code = path.basename(dir);
-        if (dir === tempDir && originalFileName) {
+
+        // `overrideCode` chỉ áp được khi ZIP chứa đúng một bài — nếu không thì
+        // mọi bài trong gói sẽ bị gán cùng một mã và ghi đè lẫn nhau.
+        if (overrideCode && singleTarget) {
+          code = overrideCode.replace(/\.zip$/i, '');
+        } else if (dir === tempDir && originalFileName) {
           code = originalFileName.replace(/\.zip$/i, '');
         }
+
         const res = await this.ingestProblem(dir, code.toUpperCase(), options);
         results.push(res);
       }
@@ -455,12 +696,24 @@ export class IngestionService {
     }
   }
 
+  /**
+   * Nạp ZIP chứa đúng một bài, có thể chỉ định mã bài.
+   *
+   * Trước đây hàm này truyền `overrideCode` vào đúng vị trí tham số
+   * `originalFileName` của `ingestFromZip`, nên mã chỉ định bị bỏ qua âm thầm
+   * mỗi khi ZIP có thư mục con. Nay `overrideCode` là tham số riêng.
+   */
   async ingestZipFile(
     zipBuffer: Buffer,
     overrideCode?: string,
     options?: IngestionOptions,
   ): Promise<IngestionResult> {
-    const results = await this.ingestFromZip(zipBuffer, overrideCode, options);
+    const results = await this.ingestFromZip(
+      zipBuffer,
+      overrideCode,
+      options,
+      overrideCode,
+    );
     return results[0];
   }
 

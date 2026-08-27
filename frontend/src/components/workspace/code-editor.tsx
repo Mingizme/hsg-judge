@@ -4,51 +4,50 @@ import * as React from 'react';
 import Editor from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
 import { EditorToolbar } from './editor-toolbar';
+import { studentStarterTemplate } from '@/lib/cpp-template';
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string | undefined) => void;
   problemCode: string;
   isTeacher?: boolean;
+  /**
+   * Khôi phục khung code. Do khung ban đầu và bản nháp đã lưu đều thuộc
+   * `workspace-layout`, việc reset phải để nơi đó xử lý — nếu tự dựng lại khung
+   * ở đây thì bản nháp trong localStorage sẽ ngay lập tức ghi đè lần sau mở bài.
+   */
+  onReset?: () => void;
 }
 
-export function CodeEditor({ value, onChange, problemCode, isTeacher }: CodeEditorProps) {
+export function CodeEditor({
+  value,
+  onChange,
+  problemCode,
+  isTeacher,
+  onReset,
+}: CodeEditorProps) {
   const { resolvedTheme } = useTheme();
   const [fontSize, setFontSize] = React.useState(14);
 
   const handleReset = () => {
-    if (window.confirm('Bạn có chắc muốn khôi phục khung code về mặc định?')) {
-      const defaultTemplate = `#include <bits/stdc++.h>
-using namespace std;
-
-int main() {
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    
-    // Đọc ghi file theo chuẩn thi HSG nếu cần
-    // if (fopen("${problemCode.toLowerCase()}.inp", "r")) {
-    //     freopen("${problemCode.toLowerCase()}.inp", "r", stdin);
-    //     freopen("${problemCode.toLowerCase()}.out", "w", stdout);
-    // }
-    
-    // Viết thuật toán của bạn tại đây...
-    
-    return 0;
-}`;
-      onChange(defaultTemplate);
+    if (!window.confirm('Bạn có chắc muốn khôi phục khung code về mặc định?')) {
+      return;
     }
+    if (onReset) onReset();
+    else onChange(studentStarterTemplate(problemCode));
   };
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <EditorToolbar 
-        problemCode={problemCode} 
+      <EditorToolbar
+        problemCode={problemCode}
         fontSize={fontSize}
         onFontSizeChange={setFontSize}
         onReset={handleReset}
         isTeacher={isTeacher}
       />
-      <div className="flex-1 w-full bg-[#1e1e1e]">
+      {/* Nền chờ theo theme: `#1e1e1e` cố định làm loé một khung đen ở chế độ Sáng. */}
+      <div className="w-full flex-1 bg-background">
         <Editor
           height="100%"
           language="cpp"

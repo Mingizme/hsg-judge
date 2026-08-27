@@ -65,6 +65,8 @@ interface ProblemTabsProps {
   description?: string;
   /** Thang điểm subtask thật của bài (dùng ở tab Hướng dẫn) */
   subtasks?: GuideSubtask[];
+  /** Input của test ví dụ đầu tiên — dữ liệu chạy thử cho tab Sơ đồ thuật toán */
+  sampleInput?: string;
   /** Lời giải mẫu của giáo viên — chỉ dùng cho Sơ đồ thuật toán / Code khuyết */
   modelSolution?: string;
   onApplyCode?: (code: string) => void;
@@ -93,6 +95,7 @@ export function ProblemTabs({
   guideHtml,
   description,
   subtasks,
+  sampleInput,
   modelSolution,
   onApplyCode,
 }: ProblemTabsProps) {
@@ -183,6 +186,9 @@ export function ProblemTabs({
           <FlowchartViewer
             problemCode={problemCode}
             initialCode={modelSolution}
+            ioType={ioType}
+            ioFileName={ioFileName}
+            sampleInput={sampleInput}
           />,
         )}
 

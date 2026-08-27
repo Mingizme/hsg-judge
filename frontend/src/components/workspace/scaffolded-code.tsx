@@ -134,13 +134,16 @@ export function ScaffoldedCode({
     correctCount === activeLevel.blanks.length;
 
   const handleApplyToEditor = () => {
-    if (!onApplyCode || !activeLevel) return;
-    let codeToApply = activeLevel.codeTemplate;
-    activeLevel.blanks.forEach((b) => {
-      const val = answers[b.id]?.trim() ? answers[b.id] : b.correctAnswer[0];
-      codeToApply = codeToApply.split(`[${b.id}]`).join(val);
-    });
-    onApplyCode(codeToApply);
+    if (!onApplyCode) return;
+    /**
+     * Đưa sang IDE ĐÚNG những gì đang xem ở khung xem trước.
+     *
+     * Bản cũ điền hộ `correctAnswer[0]` vào mọi chỗ còn trống, nên chỉ cần bấm
+     * một lần là học sinh có nguyên lời giải của giáo viên — bài tập điền khuyết
+     * mất hết ý nghĩa. Chỗ chưa điền nay sang IDE dưới dạng bình luận
+     * "[Chỗ trống]: …" để thấy rõ còn thiếu phần nào.
+     */
+    onApplyCode(generatedCode);
     setApplied(true);
   };
 
@@ -228,7 +231,7 @@ export function ScaffoldedCode({
             ) : (
               <ArrowRightCircle className="h-3.5 w-3.5" aria-hidden />
             )}
-            <span>{applied ? 'Đã chuyển vào IDE' : 'Chuyển vào IDE'}</span>
+            <span>{applied ? 'Đã áp dụng' : 'Áp dụng vào Editor'}</span>
           </button>
         </div>
       </div>
@@ -359,8 +362,8 @@ export function ScaffoldedCode({
             {allCorrect && (
               <span className="flex items-center gap-1.5 text-xs font-semibold text-success animate-fade-in">
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
-                Tất cả chỗ trống đã đúng — bấm &quot;Chuyển vào IDE&quot; để nộp
-                bài.
+                Tất cả chỗ trống đã đúng — bấm &quot;Áp dụng vào Editor&quot; để
+                nộp bài.
               </span>
             )}
           </div>

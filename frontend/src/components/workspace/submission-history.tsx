@@ -67,17 +67,28 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
   // Mode lọc: 'my' (bài nộp của tài khoản hiện tại) hoặc 'all' (tất cả học sinh / tài khoản)
   const [scope, setScope] = useState<'my' | 'all'>('my');
 
+  /**
+   * Khoá tài khoản dùng để lọc. Backend nhận cả `id`, `supabaseId` lẫn `email`
+   * (xem `getSubmissionsByUser`), nên chỉ cần một trong số đó.
+   */
+  const identifier = user?.id || user?.email || '';
+  const needsLogin = scope === 'my' && !identifier;
+
   const fetchHistory = useCallback(async () => {
+    // Chưa đăng nhập mà vẫn gọi API không kèm `userId` thì server trả bài nộp
+    // của TẤT CẢ mọi người trong khi nhãn đang là "Của tôi" — sai sự thật.
+    if (needsLogin) {
+      setSubmissions([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       let url = `${API_BASE}/submissions?problemCode=${problemCode.toUpperCase()}&limit=50`;
-      
-      // Nếu chọn lọc bài nộp của tôi và đã đăng nhập
-      if (scope === 'my' && user) {
-        const userIdentifier = user.id || user.email;
-        if (userIdentifier) {
-          url += `&userId=${encodeURIComponent(userIdentifier)}`;
-        }
+
+      if (scope === 'my' && identifier) {
+        url += `&userId=${encodeURIComponent(identifier)}`;
       }
 
       const res = await fetch(url);
@@ -91,7 +102,7 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
     } finally {
       setLoading(false);
     }
-  }, [problemCode, scope, user]);
+  }, [problemCode, scope, identifier, needsLogin]);
 
   useEffect(() => {
     fetchHistory();
@@ -260,12 +271,18 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
           <div className="flex h-full flex-col items-center justify-center p-6 text-center text-muted-foreground space-y-2">
             <History className="w-10 h-10 stroke-1 opacity-40 text-primary" />
             <div className="text-sm font-medium text-foreground">
-              {scope === 'my' ? 'Bạn chưa có lượt nộp bài nào' : 'Chưa có ai nộp bài tập này'}
+              {needsLogin
+                ? 'Hãy đăng nhập để xem bài nộp của bạn'
+                : scope === 'my'
+                  ? 'Bạn chưa có lượt nộp bài nào'
+                  : 'Chưa có ai nộp bài tập này'}
             </div>
             <p className="text-xs max-w-[280px] leading-relaxed">
-              {scope === 'my'
-                ? 'Hãy viết mã nguồn và nhấn "Nộp bài" ở góc dưới bên phải để bắt đầu chấm điểm!'
-                : 'Các bài nộp của học sinh và giáo viên sẽ được thống kê chi tiết tại đây.'}
+              {needsLogin
+                ? 'Lịch sử chấm bài được lưu theo từng tài khoản. Bấm “Tất cả tài khoản” nếu chỉ muốn xem thống kê chung.'
+                : scope === 'my'
+                  ? 'Hãy viết mã nguồn và nhấn "Nộp bài" ở góc dưới bên phải để bắt đầu chấm điểm!'
+                  : 'Các bài nộp của học sinh và giáo viên sẽ được thống kê chi tiết tại đây.'}
             </p>
           </div>
         ) : (
@@ -311,7 +328,7 @@ export function SubmissionHistory({ problemCode }: SubmissionHistoryProps) {
                                 {displayName}
                               </span>
                               {isCurrentAccount && (
-                                <span className="rounded border border-success/20 bg-success/15 px-1.5 py-px text-[10px] font-bold text-success">
+                                <span className="rounded border border-info/30 bg-info/15 px-1.5 py-px text-[10px] font-bold text-info">
                                   Tôi
                                 </span>
                               )}

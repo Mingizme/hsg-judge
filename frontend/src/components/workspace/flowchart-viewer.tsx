@@ -29,25 +29,36 @@ import {
   Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { generateFlowchartFromCpp } from '@/lib/cpp-to-flowchart';
+import { generateFlowchartFromCpp, type CppBlock } from '@/lib/cpp-to-flowchart';
 import { generateSimulationTrace, SimulationStep } from '@/lib/simulation-generator';
 
 /**
  * Bảng màu từng loại khối. Trước đây chỉ có tông tối (`bg-emerald-950/70`) nên ở
  * chế độ Sáng chữ và nền gần như trùng nhau. Nay mỗi loại có biến thể cho cả hai
  * chế độ, dùng độ mờ thay vì màu đặc để hoà với nền của theme.
+ *
+ * Danh sách khoá phải PHỦ HẾT `data.type` mà `cpp-to-flowchart.ts` phát ra —
+ * trước đây khối kết thúc mang type `end` không có trong bảng nên âm thầm rơi
+ * về kiểu `action`, còn kiểu `output` thì thành mã chết.
  */
 const NODE_STYLES: Record<string, string> = {
-  start:
-    'bg-success/10 border-success/40 text-success dark:bg-success/15',
+  // Hai đầu mút của sơ đồ
+  start: 'bg-success/10 border-success/40 text-success dark:bg-success/15',
+  end: 'bg-success/10 border-success/40 text-success dark:bg-success/15',
+  // Khai báo & khởi tạo: giữ tông trung tính để không tranh màu với xử lý
+  decl: 'bg-muted/60 border-border text-muted-foreground',
+  input: 'bg-info/10 border-info/40 text-info dark:bg-info/15',
+  output: 'bg-primary/10 border-primary/40 text-primary dark:bg-primary/15',
+  action:
+    'bg-[hsl(280_70%_60%/0.1)] border-[hsl(280_70%_60%/0.4)] text-[hsl(280_60%_45%)] dark:text-[hsl(280_70%_72%)]',
   condition:
     'bg-warning/10 border-warning/40 text-warning dark:bg-warning/15',
-  action:
-    'bg-info/10 border-info/40 text-info dark:bg-info/15',
+  // Vòng lặp cũng là khối rẽ nhánh: cùng tông hổ phách, viền gạch cho ý "lặp lại"
+  loop:
+    'bg-warning/10 border-dashed border-warning/60 text-warning dark:bg-warning/15',
+  // Giữ khoá cũ cho các khối do người dùng tự thêm
   stack:
     'bg-[hsl(280_70%_60%/0.1)] border-[hsl(280_70%_60%/0.4)] text-[hsl(280_60%_45%)] dark:text-[hsl(280_70%_72%)]',
-  output:
-    'bg-primary/10 border-primary/40 text-primary dark:bg-primary/15',
 };
 
 // Custom Flowchart Node with High-aesthetic Visuals
@@ -57,7 +68,7 @@ function CustomNode({ id, data }: { id: string; data: any }) {
   return (
     <div
       className={cn(
-        'relative min-w-[210px] cursor-grab select-none rounded-2xl border px-4 py-2.5 text-center shadow-card backdrop-blur-md transition-all duration-300 ease-smooth active:cursor-grabbing',
+        'relative min-w-[210px] max-w-[300px] cursor-grab select-none rounded-2xl border px-4 py-2.5 text-center shadow-card backdrop-blur-md transition-all duration-300 ease-smooth active:cursor-grabbing',
         NODE_STYLES[data.type as string] ?? NODE_STYLES.action,
         isCurrent &&
           'scale-105 border-primary shadow-glow ring-2 ring-primary ring-offset-2 ring-offset-background',
@@ -71,7 +82,9 @@ function CustomNode({ id, data }: { id: string; data: any }) {
       <div className="mb-0.5 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-70">
         <span>{data.category}</span>
       </div>
-      <div className="font-mono text-xs font-bold tracking-tight text-foreground">
+      {/* `whitespace-pre-line`: khối khai báo gộp nhiều dòng bằng `\n`, không có
+          nó thì mọi khai báo bị nối thành một dòng dài. */}
+      <div className="whitespace-pre-line break-words font-mono text-xs font-bold leading-relaxed tracking-tight text-foreground">
         {data.label}
       </div>
       {data.subtext && (
@@ -95,11 +108,19 @@ const nodeTypes = {
 interface FlowchartViewerProps {
   problemCode?: string;
   initialCode?: string;
+  /** Quy cách nhập/xuất thật của bài — để khối "Bắt đầu" không nói bừa về tệp */
+  ioType?: 'FILE' | 'STANDARD';
+  ioFileName?: string | null;
+  /** Input của test ví dụ, dùng làm dữ liệu chạy thử cho phần mô phỏng */
+  sampleInput?: string;
 }
 
 export function FlowchartViewer({
   problemCode = '',
   initialCode,
+  ioType,
+  ioFileName,
+  sampleInput,
 }: FlowchartViewerProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
@@ -112,22 +133,47 @@ export function FlowchartViewer({
   const code = initialCode?.trim() || '';
   const hasCode = code.length > 0;
 
-  // 1. Tự động sinh danh sách các bước mô phỏng (Dry-run Steps) cho từng bài
+  // 2. Tự động sinh cấu trúc Nodes & Edges từ Code C++
+  //    Màu cạnh phải sinh lại khi đổi Sáng/Tối: mũi tên SVG không nhận `var()`.
+  const flowOptions = useMemo(
+    () => ({
+      theme: (isDark ? 'dark' : 'light') as 'dark' | 'light',
+      ioType,
+      ioFileName,
+    }),
+    [isDark, ioType, ioFileName],
+  );
+
+  const initialGenerated = useMemo(() => {
+    if (!hasCode) {
+      return {
+        nodes: [] as Node[],
+        edges: [] as Edge[],
+        aliases: {} as Record<string, string>,
+        program: [] as CppBlock[],
+      };
+    }
+    return generateFlowchartFromCpp(code, problemCode, flowOptions);
+  }, [code, problemCode, hasCode, flowOptions]);
+
+  // 1. Sinh các bước chạy thử THẬT trên test ví dụ của chính bài này.
+  //    Truyền `program` (cây khối đã gắn `nodeId`) để bộ chạy thử làm sáng đúng
+  //    khối đang thực hiện, và truyền `sampleInput` vì đó là nguồn dữ liệu duy
+  //    nhất — thiếu nó, engine chỉ đi theo cấu trúc chứ không bịa số liệu.
   const simulationSteps = useMemo<SimulationStep[]>(() => {
     if (!hasCode) return [];
-    return generateSimulationTrace(code, problemCode);
-  }, [code, problemCode, hasCode]);
+    return generateSimulationTrace(
+      code,
+      problemCode,
+      sampleInput,
+      initialGenerated.program,
+    );
+  }, [code, problemCode, hasCode, sampleInput, initialGenerated.program]);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const currentStep = simulationSteps[currentStepIndex] || simulationSteps[0];
-
-  // 2. Tự động sinh cấu trúc Nodes & Edges từ Code C++
-  const initialGenerated = useMemo(() => {
-    if (!hasCode) return { nodes: [] as Node[], edges: [] as Edge[] };
-    return generateFlowchartFromCpp(code, problemCode);
-  }, [code, problemCode, hasCode]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialGenerated.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialGenerated.edges);
@@ -146,22 +192,30 @@ export function FlowchartViewer({
   }, [initialGenerated, setNodes, setEdges]);
 
   // Sync active step to nodes highlight
+  //
+  // `simulation-generator.ts` phát ra tên khối kiểu cũ (`node-init`,
+  // `node-true-0`…). Sơ đồ mới đánh id theo cấu trúc thật của code, nên phải
+  // dịch qua bảng `aliases`; thiếu bước này thì mọi bước mô phỏng đều trượt và
+  // không khối nào sáng lên.
+  const activeNodeId = React.useMemo(() => {
+    const raw = currentStep?.nodeId;
+    if (!raw) return undefined;
+    return initialGenerated.aliases?.[raw] ?? raw;
+  }, [currentStep?.nodeId, initialGenerated.aliases]);
+
   React.useEffect(() => {
-    if (!currentStep) return;
+    if (!activeNodeId) return;
     setNodes((nds) =>
       nds.map((node) => ({
         ...node,
-        data: {
-          ...node.data,
-          isActive: node.id === currentStep?.nodeId,
-        },
-      }))
+        data: { ...node.data, isActive: node.id === activeNodeId },
+      })),
     );
-  }, [currentStepIndex, currentStep?.nodeId, setNodes, currentStep]);
+  }, [activeNodeId, setNodes]);
 
   const handleResetLayout = () => {
     if (!hasCode) return;
-    const regenerated = generateFlowchartFromCpp(code, problemCode);
+    const regenerated = generateFlowchartFromCpp(code, problemCode, flowOptions);
     setNodes(regenerated.nodes);
     setEdges(regenerated.edges);
     setCurrentStepIndex(0);
@@ -346,11 +400,24 @@ export function FlowchartViewer({
             className="hidden !overflow-hidden !rounded-xl !border-border !bg-card/90 sm:block"
             maskColor={isDark ? 'hsl(240 10% 4% / 0.6)' : 'hsl(210 40% 96% / 0.6)'}
             nodeColor={(node) => {
-              if (node.data?.type === 'start') return 'hsl(142 71% 45%)';
-              if (node.data?.type === 'condition') return 'hsl(38 92% 50%)';
-              if (node.data?.type === 'stack') return 'hsl(280 70% 60%)';
-              if (node.data?.type === 'output') return 'hsl(221 83% 53%)';
-              return 'hsl(199 89% 48%)';
+              /* Phải khớp `NODE_STYLES`, nếu không bản đồ thu nhỏ tô sai loại khối. */
+              switch (node.data?.type) {
+                case 'start':
+                case 'end':
+                  return 'hsl(142 71% 45%)';
+                case 'condition':
+                case 'loop':
+                  return 'hsl(38 92% 50%)';
+                case 'action':
+                case 'stack':
+                  return 'hsl(280 70% 60%)';
+                case 'output':
+                  return 'hsl(221 83% 53%)';
+                case 'decl':
+                  return 'hsl(240 5% 55%)';
+                default:
+                  return 'hsl(199 89% 48%)';
+              }
             }}
           />
         </ReactFlow>
@@ -361,15 +428,22 @@ export function FlowchartViewer({
         <div className="z-10 flex shrink-0 flex-col items-start justify-between gap-3 border-t bg-card/95 px-4 py-2.5 text-xs shadow-elevated backdrop-blur sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1 font-bold text-primary">
-              <Eye className="h-3.5 w-3.5" aria-hidden /> Biến theo dõi:
+              <Eye className="h-3.5 w-3.5" aria-hidden />{' '}
+              {currentStep.kind === 'structure' ? 'Đang xét:' : 'Biến theo dõi:'}
             </span>
             <div className="flex items-center gap-2 font-mono">
-              <span className="rounded border bg-muted px-2 py-0.5">
-                i = {currentStep.i >= 0 ? currentStep.i : '-'}
-              </span>
-              <span className="rounded border bg-muted px-2 py-0.5">
-                s[i] = &apos;{currentStep.currentChar}&apos;
-              </span>
+              {/* Chỉ bài có engine mô phỏng giá trị mới có `i` / `s[i]` thật.
+                  Với chế độ đi bộ theo cấu trúc, hiện chúng ra chỉ là "-" vô nghĩa. */}
+              {currentStep.kind !== 'structure' && (
+                <>
+                  <span className="rounded border bg-muted px-2 py-0.5">
+                    i = {currentStep.i >= 0 ? currentStep.i : '-'}
+                  </span>
+                  <span className="rounded border bg-muted px-2 py-0.5">
+                    s[i] = &apos;{currentStep.currentChar}&apos;
+                  </span>
+                </>
+              )}
               <span className="rounded border border-warning/30 bg-warning/10 px-2 py-0.5 font-bold text-warning">
                 {currentStep.primaryVarName} = {currentStep.primaryVarValue}
               </span>
@@ -380,7 +454,14 @@ export function FlowchartViewer({
             <span className="font-sans text-muted-foreground">
               {currentStep.memoryLabel || 'Bộ nhớ'}:
             </span>
-            <div className="flex items-center gap-1">
+            {/* Chế độ cấu trúc không có ô nhớ nào để vẽ — thay bằng tên loại khối
+                thì hữu ích hơn là một chữ "[rỗng]" ở mọi bước. */}
+            {currentStep.kind === 'structure' ? (
+              <span className="max-w-[220px] truncate rounded border bg-muted px-2 py-0.5 font-sans">
+                {currentStep.action || '—'}
+              </span>
+            ) : (
+              <div className="flex items-center gap-1">
               {!currentStep.memoryItems || currentStep.memoryItems.length === 0 ? (
                 <span className="font-sans text-[11px] italic text-muted-foreground">
                   [rỗng]
@@ -395,7 +476,8 @@ export function FlowchartViewer({
                   </span>
                 ))
               )}
-            </div>
+              </div>
+            )}
           </div>
 
           <div className="hidden max-w-sm italic line-clamp-1 text-[11px] text-muted-foreground lg:block">

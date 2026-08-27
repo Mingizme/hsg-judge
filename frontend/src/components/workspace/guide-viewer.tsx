@@ -3,6 +3,7 @@
 import React from 'react';
 import { BookOpen, Download, Lightbulb, ListChecks, FileText } from 'lucide-react';
 import { sanitizeHtml, hasRenderableHtml } from '@/lib/sanitize-html';
+import { cn } from '@/lib/utils';
 
 export interface GuideSubtask {
   id?: string;
@@ -57,7 +58,7 @@ export function GuideViewer({
             title="Tải file .docx gốc về máy"
           >
             <Download className="h-3.5 w-3.5 text-primary" aria-hidden />
-            <span>Tải file .DOCX</span>
+            <span>Tải tài liệu gốc (.docx)</span>
           </a>
         )}
       </div>
@@ -77,8 +78,29 @@ export function GuideViewer({
                 </p>
               </div>
 
+              {/* Bảng trong .docx (bảng subtask, bảng giới hạn dữ liệu) thường
+                  rộng hơn khung trái; bọc `overflow-x-auto` để cuộn ngang thay
+                  vì kéo giãn cả cột hướng dẫn. */}
               <div
-                className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-bold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:text-xs prose-p:leading-relaxed prose-li:text-xs prose-pre:rounded-xl prose-pre:bg-muted prose-pre:p-3 prose-img:mx-auto prose-img:max-h-96 prose-img:rounded-xl prose-img:border"
+                className={cn(
+                  'prose prose-sm max-w-none overflow-x-auto dark:prose-invert',
+                  'prose-headings:font-bold prose-headings:tracking-tight prose-headings:text-foreground',
+                  'prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-h3:text-primary',
+                  'prose-p:text-xs prose-p:leading-relaxed prose-li:text-xs',
+                  'prose-strong:text-foreground',
+                  'prose-a:text-primary prose-a:underline-offset-2',
+                  /* Công thức toán trong Word xuất ra dưới dạng chữ nghiêng +
+                     chỉ số trên/dưới; phải giữ nguyên cỡ chữ để không bị mất. */
+                  'prose-sub:text-[0.7em] prose-sup:text-[0.7em]',
+                  'prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:font-mono prose-code:text-primary prose-code:before:content-none prose-code:after:content-none',
+                  'prose-pre:overflow-x-auto prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:rounded-xl prose-pre:border prose-pre:bg-muted prose-pre:p-3 prose-pre:text-xs',
+                  /* mammoth không sinh viền cho bảng .docx: tự kẻ viền, nếu không
+                     bảng thang điểm chỉ còn là mấy dòng chữ dính nhau. */
+                  'prose-table:my-4 prose-table:w-full prose-table:border-collapse prose-table:border',
+                  'prose-th:border prose-th:bg-muted/70 prose-th:p-2 prose-th:text-left prose-th:text-[11px] prose-th:font-semibold prose-th:text-foreground',
+                  'prose-td:border prose-td:p-2 prose-td:align-top prose-td:text-[11px]',
+                  'prose-img:mx-auto prose-img:max-h-96 prose-img:rounded-xl prose-img:border',
+                )}
                 dangerouslySetInnerHTML={{ __html: safeGuide }}
               />
             </>

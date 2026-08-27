@@ -42,7 +42,33 @@ export function StatementViewer({
   guideHtml,
   description,
 }: StatementViewerProps) {
-  const [viewMode, setViewMode] = useState<'text' | 'pdf'>('text');
+  /**
+   * Mặc định mở bản PDF khi bài có PDF: đó là đề GỐC của giáo viên, còn bản chữ
+   * chỉ là văn bản trích tự động nên có thể lệch bảng biểu/công thức.
+   *
+   * `pdfUrl` tới sau khi tải dữ liệu bài nên phải chuyển chế độ trong `effect` —
+   * nhưng chỉ chuyển khi người dùng chưa tự bấm, tránh việc vừa chọn "Đề bài
+   * (Text)" thì bị kéo về PDF.
+   */
+  const [viewMode, setViewMode] = useState<'text' | 'pdf'>(
+    pdfUrl ? 'pdf' : 'text',
+  );
+  const userPickedRef = React.useRef(false);
+
+  const pickView = (mode: 'text' | 'pdf') => {
+    userPickedRef.current = true;
+    setViewMode(mode);
+  };
+
+  React.useEffect(() => {
+    if (userPickedRef.current) return;
+    setViewMode(pdfUrl ? 'pdf' : 'text');
+  }, [pdfUrl]);
+
+  // Đổi bài thì quay lại chế độ mặc định của bài mới
+  React.useEffect(() => {
+    userPickedRef.current = false;
+  }, [problemCode]);
 
   const displayTitle = title || `Bài tập ${problemCode}`;
   const timeLimitSec = (timeLimitMs / 1000).toFixed(1);
@@ -57,7 +83,7 @@ export function StatementViewer({
    * HTML — PHẢI lọc trước khi nhúng vào DOM (xem `lib/sanitize-html.ts`).
    */
   const rawStatement = description || guideHtml || '';
-  const isHtml = /<(p|h[1-6]|div|table|ul|ol|br)\b/i.test(rawStatement);
+  const isHtml = /<(p|h[1-6]|div|table|ul|ol|br|pre)\b/i.test(rawStatement);
   const safeStatement = isHtml ? sanitizeHtml(rawStatement) : rawStatement;
   const hasStatement = isHtml
     ? hasRenderableHtml(safeStatement)
@@ -75,7 +101,7 @@ export function StatementViewer({
           >
             <button
               type="button"
-              onClick={() => setViewMode('text')}
+              onClick={() => pickView('text')}
               aria-pressed={viewMode === 'text'}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
@@ -89,13 +115,20 @@ export function StatementViewer({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('pdf')}
+              onClick={() => pickView('pdf')}
+              disabled={!pdfUrl}
               aria-pressed={viewMode === 'pdf'}
+              title={
+                pdfUrl
+                  ? 'Xem đề gốc dạng PDF'
+                  : 'Bài này chưa có tệp PDF đề bài'
+              }
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
                 viewMode === 'pdf'
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
+                !pdfUrl && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',
               )}
             >
               <FileText className="h-3.5 w-3.5" aria-hidden />
@@ -193,6 +226,10 @@ export function StatementViewer({
                       'prose-th:border prose-th:bg-muted/70 prose-th:p-2.5 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:text-foreground',
                       'prose-td:border prose-td:p-2.5 prose-td:font-mono prose-td:text-xs',
                       'prose-ul:my-2.5 prose-ul:list-disc prose-ul:space-y-1.5 prose-ul:pl-5 prose-ul:text-muted-foreground',
+                      /* Khối "Ví dụ mẫu" được backend giữ nguyên văn trong `<pre>`:
+                         phải là chữ đơn cách và cho xuống dòng, nếu không dữ liệu
+                         vào/ra dài sẽ tràn ngang khỏi khung đề. */
+                      'prose-pre:my-3 prose-pre:overflow-x-auto prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:rounded-xl prose-pre:border prose-pre:bg-muted/60 prose-pre:p-3.5 prose-pre:font-mono prose-pre:text-xs prose-pre:leading-relaxed prose-pre:text-foreground',
                     )}
                     dangerouslySetInnerHTML={{ __html: safeStatement }}
                   />
